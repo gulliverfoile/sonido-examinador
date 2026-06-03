@@ -24,7 +24,6 @@
       background: linear-gradient(135deg, #ffcc00, #ff6600);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
-      text-shadow: none;
     }
     .container {
       max-width: 900px;
@@ -139,6 +138,15 @@
     .status.ok { color: #66ff66; }
     .status.partial { color: #ffcc00; }
     .status.rejected { color: #ff4444; }
+    .notice {
+      background: #332200;
+      color: #ffaa00;
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+      margin-bottom: 15px;
+      display: none;
+    }
     .footer {
       margin-top: 20px;
       font-size: 0.8rem;
@@ -149,6 +157,7 @@
 </head>
 <body>
   <h1>🌍 Audio Planetario</h1>
+  <div class="notice" id="notice">⚠️ Toca cualquier nota para activar el audio</div>
   <div class="container">
     <!-- Panel de control -->
     <div class="panel">
@@ -201,9 +210,7 @@
   <script>
     // ============================================================
     // 1. DOMINIO PURO: ATMÓSFERAS, INSTRUMENTOS, PROPAGADOR, EXAMINADOR
-    // (Misma lógica planetaria, adaptada para web)
     // ============================================================
-
     class Atmosphere {
       constructor(id, config) {
         this.id = id;
@@ -381,7 +388,9 @@
     // 2. SÍNTESIS DE AUDIO CON WEB AUDIO API
     // ============================================================
     let audioCtx = null;
-    let activeOscillators = [];
+    let analyserNode = null;
+    let animationId = null;
+    let visualizerStarted = false;
 
     function initAudio() {
       if (!audioCtx) {
@@ -389,75 +398,6 @@
       }
       if (audioCtx.state === 'suspended') audioCtx.resume();
     }
-
-    function playProcessedSound(datos) {
-      if (!audioCtx) initAudio();
-      if (!datos) return;
-
-      const now = audioCtx.currentTime;
-      const startTime = now + (datos.delay || 0);
-      const duration = 1.5; // segundos
-
-      // Oscilador principal
-      const osc = audioCtx.createOscillator();
-      const oscType = datos.instrument?.waveType || 'sine';
-      osc.type = oscType;
-      osc.frequency.setValueAtTime(datos.instrument.note * datos.pitchMultiplier, startTime);
-
-      // Ganancia con envolvente
-      const gainNode = audioCtx.createGain();
-      const vol = Math.min(datos.volumeFactor, 1.5); // limitar para proteger oídos
-      gainNode.gain.setValueAtTime(0, now);
-      gainNode.gain.linearRampToValueAtTime(vol, startTime + 0.05);
-      gainNode.gain.exponentialRampToValueAtTime(vol * 0.3, startTime + 0.3);
-      gainNode.gain.linearRampToValueAtTime(0, startTime + duration);
-
-      // Filtro pasa-bajos (simula absorción atmosférica)
-      const filter = audioCtx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(datos.cutoffFrequency, startTime);
-      filter.Q.setValueAtTime(0.7 + (datos.resonanceShift || 0), startTime);
-
-      // Resonancia adicional para instrumentos que escalan
-      if (datos.resonanceShift && datos.resonanceShift !== 0) {
-        const resFilter = audioCtx.createBiquadFilter();
-        resFilter.type = 'peaking';
-        resFilter.frequency.setValueAtTime(datos.instrument.note * datos.pitchMultiplier * 2, startTime);
-        resFilter.Q.setValueAtTime(5 + Math.abs(datos.resonanceShift) * 20, startTime);
-        resFilter.gain.setValueAtTime(datos.resonanceShift * 10, startTime);
-
-        osc.connect(resFilter);
-        resFilter.connect(filter);
-      } else {
-        osc.connect(filter);
-      }
-
-      filter.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-
-      osc.start(startTime);
-      osc.stop(startTime + duration);
-
-      // Guardar referencia para el visualizador
-      const soundEntry = { osc, gainNode, filter, startTime, duration, datos };
-      activeOscillators.push(soundEntry);
-
-      // Limpiar al terminar
-      osc.onended = () => {
-        const idx = activeOscillators.indexOf(soundEntry);
-        if (idx > -1) activeOscillators.splice(idx, 1);
-      };
-
-      return soundEntry;
-    }
-
-    // ============================================================
-    // 3. VISUALIZACIÓN (Canvas)
-    // ============================================================
-    const waveCanvas = document.getElementById('waveCanvas');
-    const waveCtx = waveCanvas.getContext('2d');
-    let analyserNode = null;
-    let animationId = null;
 
     function setupAnalyser() {
       if (!audioCtx) initAudio();
@@ -468,51 +408,47 @@
       }
     }
 
-    function drawWaveform() {
-      if (!analyserNode) return;
-      const bufferLength = analyserNode.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
+    function startVisualizer() {
+      if (visualizerStarted) return;
+      visualizerStarted = true;
+      const canvas = document.getElementById('waveCanvas');
+      const ctx = canvas.getContext('2d');
 
       function draw() {
+        if (!analyserNode) {
+          animationId = requestAnimationFrame(draw);
+          return;
+        }
         animationId = requestAnimationFrame(draw);
+        const bufferLength = analyserNode.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
         analyserNode.getByteTimeDomainData(dataArray);
 
-        waveCtx.fillStyle = '#0a0a18';
-        waveCtx.fillRect(0, 0, waveCanvas.width, waveCanvas.height);
+        ctx.fillStyle = '#0a0a18';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ff8800';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#ff5500';
+        ctx.beginPath();
 
-        waveCtx.lineWidth = 2;
-        waveCtx.strokeStyle = '#ff8800';
-        waveCtx.shadowBlur = 15;
-        waveCtx.shadowColor = '#ff5500';
-        waveCtx.beginPath();
-
-        const sliceWidth = waveCanvas.width / bufferLength;
+        const sliceWidth = canvas.width / bufferLength;
         let x = 0;
         for (let i = 0; i < bufferLength; i++) {
           const v = dataArray[i] / 128.0;
-          const y = v * waveCanvas.height / 2;
-          if (i === 0) waveCtx.moveTo(x, y);
-          else waveCtx.lineTo(x, y);
+          const y = v * canvas.height / 2;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
           x += sliceWidth;
         }
-        waveCtx.lineTo(waveCanvas.width, waveCanvas.height / 2);
-        waveCtx.stroke();
-        waveCtx.shadowBlur = 0;
+        ctx.lineTo(canvas.width, canvas.height / 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
       }
       draw();
     }
 
-    // Conectar el analyser entre el último nodo y el destino
-    function patchAnalyser() {
-      if (!audioCtx || !analyserNode) return;
-      // Re-conectamos: todos los gainNode -> analyser -> destination
-      // En nuestra implementación, al crear cada sonido conectamos gainNode -> destination.
-      // Para el analyser, vamos a interceptar: gainNode -> analyser -> destination.
-      // Simplificación: al crear sonido, conectamos gainNode a analyser y analyser a destination.
-    }
-
-    // Versión mejorada de playProcessedSound que usa analyser
-    function playProcessedSoundWithAnalyser(datos) {
+    function playProcessedSound(datos) {
       if (!audioCtx) initAudio();
       setupAnalyser();
       if (!datos) return;
@@ -550,23 +486,19 @@
       }
 
       filter.connect(gainNode);
-      gainNode.connect(analyserNode);
-      // analyser ya conectado a destination en setupAnalyser
+      gainNode.connect(analyserNode); // analyser ya conectado a destination
 
       osc.start(startTime);
       osc.stop(startTime + duration);
 
-      const soundEntry = { osc, gainNode, filter, startTime, duration, datos };
-      activeOscillators.push(soundEntry);
+      // Limpieza al terminar
       osc.onended = () => {
-        const idx = activeOscillators.indexOf(soundEntry);
-        if (idx > -1) activeOscillators.splice(idx, 1);
+        // No es necesario eliminar referencias porque el oscilador se detiene solo
       };
-      return soundEntry;
     }
 
     // ============================================================
-    // 4. INTERFAZ DE USUARIO
+    // 3. INTERFAZ DE USUARIO
     // ============================================================
     const atmosphereSelect = document.getElementById('atmosphereSelect');
     const instrumentSelect = document.getElementById('instrumentSelect');
@@ -576,8 +508,9 @@
     const statusMsg = document.getElementById('statusMsg');
     const sourceDot = document.getElementById('sourceDot');
     const listenerDot = document.getElementById('listenerDot');
+    const notice = document.getElementById('notice');
 
-    // Notas del teclado (frecuencias en Hz)
+    // Notas del teclado
     const notes = [
       { label: 'Do4', freq: 261.63 },
       { label: 'Re4', freq: 293.66 },
@@ -589,6 +522,19 @@
       { label: 'Do5', freq: 523.25 }
     ];
 
+    // Posiciones de la fuente en metros (cercanas al oyente)
+    const sourcePositions = [
+      { x: 2, y: 5 },  // Do4
+      { x: 3, y: 2 },  // Re4
+      { x: 4, y: 8 },  // Mi4
+      { x: 1, y: 3 },  // Fa4
+      { x: 8, y: 4 },  // Sol4
+      { x: 6, y: 1 },  // La4
+      { x: 7, y: 9 },  // Si4
+      { x: 5, y: 6 }   // Do5
+    ];
+    const listenerPosMeters = { x: 5, y: 5 }; // centro del área de 10x10 m
+
     // Construir teclado
     notes.forEach((note, index) => {
       const btn = document.createElement('button');
@@ -596,13 +542,6 @@
       btn.addEventListener('click', () => playNote(note.freq, index));
       keyboardDiv.appendChild(btn);
     });
-
-    // Posición del oyente (centro) y fuente (variable según nota)
-    const listenerPos = { x: 50, y: 50 }; // porcentaje en minimapa
-    const sourcePositions = [
-      { x: 10, y: 50 }, { x: 20, y: 30 }, { x: 30, y: 70 }, { x: 40, y: 20 },
-      { x: 60, y: 80 }, { x: 70, y: 40 }, { x: 80, y: 60 }, { x: 90, y: 50 }
-    ];
 
     function updateAtmoData() {
       const id = atmosphereSelect.value;
@@ -617,31 +556,33 @@
     }
 
     function playNote(freq, index) {
-      initAudio();
-      setupAnalyser();
-      updateAtmoData();
+      // Activar audio tras primer clic
+      if (!audioCtx) {
+        initAudio();
+        notice.style.display = 'none';
+        startVisualizer();
+      }
 
+      updateAtmoData();
       const instrumentType = instrumentSelect.value;
       const instrument = instrumentRegistry.create(instrumentType, freq, 1.0);
 
-      // Usar la posición correspondiente a la nota
-      const sourcePos = sourcePositions[index];
-      const sourcePosMeters = { x: sourcePos.x * 10, y: sourcePos.y * 10 };
-      const listenerPosMeters = { x: 250, y: 250 }; // centro en metros (500x500)
-
+      const sourcePosMeters = sourcePositions[index];
       const result = soundPropagator.process(instrument, sourcePosMeters, listenerPosMeters);
 
-      // Actualizar minimapa
-      sourceDot.style.left = sourcePos.x + '%';
-      sourceDot.style.top = sourcePos.y + '%';
+      // Actualizar minimapa (porcentajes sobre 10x10)
+      sourceDot.style.left = (sourcePosMeters.x * 10) + '%';
+      sourceDot.style.top = (sourcePosMeters.y * 10) + '%';
       listenerDot.style.left = '50%';
       listenerDot.style.top = '50%';
 
       // Resaltar botón
       const buttons = keyboardDiv.querySelectorAll('button');
       buttons.forEach(b => b.classList.remove('playing'));
-      if (buttons[index]) buttons[index].classList.add('playing');
-      setTimeout(() => buttons[index]?.classList.remove('playing'), 300);
+      if (buttons[index]) {
+        buttons[index].classList.add('playing');
+        setTimeout(() => buttons[index]?.classList.remove('playing'), 300);
+      }
 
       if (result.tipo === 'RECHAZADO' || !result.datos) {
         statusMsg.textContent = '🔇 ' + (result.motivo || 'Rechazado');
@@ -661,29 +602,30 @@
         ${d.resonanceShift ? '| ResShift: ' + d.resonanceShift.toFixed(3) : ''}
       `;
 
-      // Reproducir sonido real
-      playProcessedSoundWithAnalyser(d);
+      playProcessedSound(d);
     }
 
-    // Inicializar
+    // Mostrar aviso si el contexto está suspendido
+    window.addEventListener('load', () => {
+      // No podemos saber el estado sin crear el contexto, así que mostramos el aviso siempre
+      notice.style.display = 'block';
+    });
+
+    // Inicializar atmósfera por defecto
     updateAtmoData();
     atmosphereSelect.addEventListener('change', updateAtmoData);
 
-    // Iniciar visualización
-    setupAnalyser();
-    drawWaveform();
-
-    // Ajustar tamaño del canvas
+    // Ajustar canvas al tamaño del contenedor
     function resizeCanvas() {
-      const rect = waveCanvas.parentElement.getBoundingClientRect();
-      waveCanvas.width = rect.width - 40;
-      waveCanvas.height = 150;
+      const canvas = document.getElementById('waveCanvas');
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width - 40;
+      canvas.height = 150;
     }
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
 
     console.log('🌌 Audio Planetario Interactivo listo.');
-    console.log('Selecciona un planeta, un instrumento y haz clic en las notas.');
   </script>
 </body>
 </html>
