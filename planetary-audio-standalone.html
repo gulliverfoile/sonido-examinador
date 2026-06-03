@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Planetario Interactivo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0a0a1a;
+      color: #e0e0ff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+      background-image: radial-gradient(ellipse at center, #1a1a3a 0%, #050510 100%);
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 10px;
+      font-size: 2rem;
+      background: linear-gradient(135deg, #ffcc00, #ff6600);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: none;
+    }
+    .container {
+      max-width: 900px;
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 700px) { .container { grid-template-columns: 1fr; } }
+    .panel {
+      background: rgba(20, 20, 50, 0.8);
+      border: 1px solid rgba(100, 100, 200, 0.3);
+      border-radius: 16px;
+      padding: 20px;
+      backdrop-filter: blur(10px);
+    }
+    .panel h2 {
+      margin-bottom: 12px;
+      font-size: 1.2rem;
+      color: #aaccff;
+    }
+    select, button {
+      width: 100%;
+      padding: 10px 14px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(150, 150, 220, 0.4);
+      background: rgba(30, 30, 60, 0.9);
+      color: #ffffff;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    select:hover, button:hover {
+      background: rgba(60, 60, 120, 0.9);
+      border-color: #aaccff;
+    }
+    button:active {
+      transform: scale(0.97);
+      background: #4444aa;
+    }
+    .keyboard {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 15px;
+    }
+    .keyboard button {
+      padding: 16px 8px;
+      font-weight: bold;
+      font-size: 1rem;
+      background: linear-gradient(180deg, #2a2a5a 0%, #1a1a3a 100%);
+      border: 2px solid #4a4a8a;
+      text-shadow: 0 0 8px rgba(200,200,255,0.5);
+    }
+    .keyboard button.playing {
+      background: linear-gradient(180deg, #ff8800 0%, #cc4400 100%);
+      border-color: #ffaa00;
+      box-shadow: 0 0 20px #ff6600;
+    }
+    .atmo-data {
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: #aabbdd;
+      margin-top: 8px;
+    }
+    .atmo-data span { color: #ffcc66; font-weight: bold; }
+    canvas {
+      width: 100%;
+      height: 150px;
+      border-radius: 8px;
+      background: #0a0a18;
+      margin-top: 8px;
+      display: block;
+    }
+    .minimap {
+      position: relative;
+      width: 100%;
+      height: 150px;
+      background: radial-gradient(circle at center, #1a2a3a 0%, #0a0a18 100%);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .source-dot, .listener-dot {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      transition: all 0.3s;
+      box-shadow: 0 0 12px;
+    }
+    .source-dot { background: #ff5500; box-shadow: 0 0 12px #ff5500; z-index: 2; }
+    .listener-dot { background: #00ccff; box-shadow: 0 0 12px #00ccff; z-index: 3; }
+    .params-info {
+      font-family: 'Courier New', monospace;
+      font-size: 0.75rem;
+      color: #99bbee;
+      margin-top: 8px;
+      background: #0a0a18;
+      padding: 8px;
+      border-radius: 6px;
+    }
+    .status {
+      text-align: center;
+      padding: 8px;
+      border-radius: 6px;
+      font-weight: bold;
+      margin-top: 5px;
+    }
+    .status.ok { color: #66ff66; }
+    .status.partial { color: #ffcc00; }
+    .status.rejected { color: #ff4444; }
+    .footer {
+      margin-top: 20px;
+      font-size: 0.8rem;
+      color: #667;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>🌍 Audio Planetario</h1>
+  <div class="container">
+    <!-- Panel de control -->
+    <div class="panel">
+      <h2>🌐 Atmósfera</h2>
+      <select id="atmosphereSelect">
+        <option value="tierra">🌍 Tierra</option>
+        <option value="marte">🔴 Marte</option>
+        <option value="venus">🟠 Venus</option>
+        <option value="titan">🪐 Titán</option>
+      </select>
+      <div class="atmo-data" id="atmoData"></div>
+
+      <h2 style="margin-top:15px;">🎵 Instrumento</h2>
+      <select id="instrumentSelect">
+        <option value="flauta">🪈 Flauta (ajusta pitch)</option>
+        <option value="guitarra">🎸 Guitarra (resonancia)</option>
+        <option value="tambor">🥁 Tambor (amortiguación)</option>
+        <option value="voz">🎤 Voz</option>
+      </select>
+
+      <h2 style="margin-top:15px;">🎹 Notas</h2>
+      <div class="keyboard" id="keyboard"></div>
+
+      <div class="params-info" id="paramsInfo">
+        Esperando nota...
+      </div>
+      <div class="status ok" id="statusMsg">Listo para tocar</div>
+    </div>
+
+    <!-- Panel de visualización -->
+    <div class="panel">
+      <h2>📊 Forma de Onda</h2>
+      <canvas id="waveCanvas"></canvas>
+
+      <h2 style="margin-top:15px;">🗺️ Posición (oyente en centro)</h2>
+      <div class="minimap" id="minimap">
+        <div class="source-dot" id="sourceDot" style="left:10%;top:50%;"></div>
+        <div class="listener-dot" id="listenerDot" style="left:50%;top:50%;"></div>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:#8899bb;">
+        <span>🔴 Fuente</span>
+        <span>🔵 Oyente</span>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    Haz clic en las notas para escuchar cómo sonarían en diferentes planetas 🚀
+  </div>
+
+  <script>
+    // ============================================================
+    // 1. DOMINIO PURO: ATMÓSFERAS, INSTRUMENTOS, PROPAGADOR, EXAMINADOR
+    // (Misma lógica planetaria, adaptada para web)
+    // ============================================================
+
+    class Atmosphere {
+      constructor(id, config) {
+        this.id = id;
+        this.name = config.name;
+        this.pressure = config.pressure;
+        this.temperature = config.temperature;
+        this.molarMass = config.molarMass;
+        this.gamma = config.gamma;
+        this.absorptionCoeffs = config.absorptionCoeffs || {};
+      }
+      get soundSpeed() {
+        const R = 8.314;
+        return Math.sqrt((this.gamma * R * this.temperature) / this.molarMass);
+      }
+      get density() {
+        const R = 0.082;
+        return (this.pressure * this.molarMass) / (R * this.temperature);
+      }
+      getAbsorption(frequency) {
+        const freqs = Object.keys(this.absorptionCoeffs).map(Number).sort((a,b) => a-b);
+        if (!freqs.length) return 0.001;
+        let closest = freqs[0];
+        for (const f of freqs) if (f <= frequency) closest = f;
+        return this.absorptionCoeffs[closest] || 0.001;
+      }
+    }
+
+    const atmosphereManager = {
+      _atmospheres: {},
+      init() {
+        this.register('tierra', new Atmosphere('tierra', {
+          name: 'Tierra', pressure: 1.0, temperature: 293, molarMass: 0.029, gamma: 1.4,
+          absorptionCoeffs: { 100:0.001, 1000:0.003, 10000:0.01 }
+        }));
+        this.register('marte', new Atmosphere('marte', {
+          name: 'Marte', pressure: 0.006, temperature: 210, molarMass: 0.044, gamma: 1.3,
+          absorptionCoeffs: { 100:0.01, 1000:0.1, 10000:0.5 }
+        }));
+        this.register('venus', new Atmosphere('venus', {
+          name: 'Venus', pressure: 92, temperature: 737, molarMass: 0.044, gamma: 1.3,
+          absorptionCoeffs: { 100:0.0001, 1000:0.001, 10000:0.05 }
+        }));
+        this.register('titan', new Atmosphere('titan', {
+          name: 'Titán', pressure: 1.45, temperature: 94, molarMass: 0.028, gamma: 1.4,
+          absorptionCoeffs: { 100:0.0005, 1000:0.002, 10000:0.008 }
+        }));
+      },
+      register(id, atm) { this._atmospheres[id] = atm; },
+      get(id) { return this._atmospheres[id] || this._atmospheres['tierra']; }
+    };
+
+    const instrumentRegistry = {
+      _templates: {},
+      init() {
+        this._templates = {
+          'flauta':   { type:'wind', earthPitch:1.0, adjustPitch:true,  baseVolume:0.7, waveType:'sine' },
+          'guitarra': { type:'string', earthPitch:1.0, adjustPitch:false, baseVolume:0.8, resonanceScale:true, waveType:'triangle' },
+          'tambor':   { type:'percussion', earthPitch:1.0, adjustPitch:false, baseVolume:0.9, dampingScale:true, waveType:'square' },
+          'voz':      { type:'voice', earthPitch:1.0, adjustPitch:false, baseVolume:0.6, waveType:'sawtooth' }
+        };
+      },
+      create(type, note, intensity) {
+        const t = this._templates[type] || this._templates['guitarra'];
+        return { ...t, note, intensity };
+      }
+    };
+
+    class ExaminadorAudio {
+      constructor() {
+        this._historial = new Map();
+        this._perfil = { toleranciaFaltantes:0.4, permitirInferencia:true, maxReintentos:2 };
+      }
+      examinar(params) {
+        const hechos = {
+          valido: true,
+          tienePitch: typeof params.pitchMultiplier === 'number' && params.pitchMultiplier > 0,
+          tieneVolumen: typeof params.volumeFactor === 'number' && params.volumeFactor >= 0,
+          tieneCutoff: typeof params.cutoffFrequency === 'number' && params.cutoffFrequency > 0,
+          tieneDistancia: typeof params.distance === 'number' && params.distance >= 0,
+          volumenExcesivo: params.volumeFactor > 2.0,
+          cutoffInaudible: params.cutoffFrequency < 20,
+          distanciaExtrema: params.distance > 1000
+        };
+        if (!hechos.tienePitch || !hechos.tieneVolumen) hechos.valido = false;
+
+        const opciones = [
+          this._intentarCompleto(params, hechos),
+          this._intentarParcial(params, hechos),
+          this._intentarRechazo(params, hechos)
+        ].filter(o => o !== null);
+
+        const opcionesEticas = opciones.filter(op => this._esEtico(op));
+        if (opcionesEticas.length === 0) {
+          return { tipo:'RECHAZADO', motivo:'Ninguna opción viable', datos:null };
+        }
+        return opcionesEticas.reduce((mejor, actual) =>
+          ({OK:10, PARCIAL:5, RECHAZADO:0}[actual.tipo] > {OK:10, PARCIAL:5, RECHAZADO:0}[mejor.tipo] ? actual : mejor)
+        );
+      }
+      _intentarCompleto(params, hechos) {
+        if (hechos.volumenExcesivo || hechos.cutoffInaudible) return null;
+        return { tipo:'OK', datos: { ...params } };
+      }
+      _intentarParcial(params, hechos) {
+        const faltan = [];
+        if (hechos.volumenExcesivo) faltan.push('volumeFactor');
+        if (hechos.cutoffInaudible) faltan.push('cutoffFrequency');
+        if (faltan.length/4 > this._perfil.toleranciaFaltantes) return null;
+        return {
+          tipo:'PARCIAL',
+          datos: {
+            ...params,
+            volumeFactor: hechos.volumenExcesivo ? 1.0 : params.volumeFactor,
+            cutoffFrequency: hechos.cutoffInaudible ? 200 : params.cutoffFrequency
+          },
+          faltan
+        };
+      }
+      _intentarRechazo(params, hechos) {
+        return { tipo:'RECHAZADO', motivo:'Parámetros degradados', datos:null };
+      }
+      _esEtico(opcion) {
+        if (!opcion.datos) return opcion.tipo === 'RECHAZADO';
+        return opcion.datos.cutoffFrequency >= 20;
+      }
+    }
+
+    class SoundPropagator {
+      constructor() { this._atmosphere = null; }
+      setAtmosphere(atm) { this._atmosphere = atm; }
+      process(instrument, sourcePos, listenerPos) {
+        if (!this._atmosphere) return { tipo:'RECHAZADO', motivo:'Sin atmósfera', datos:null };
+        const dx = listenerPos.x - sourcePos.x;
+        const dy = listenerPos.y - sourcePos.y;
+        const distance = Math.sqrt(dx*dx + dy*dy);
+        const soundSpeed = this._atmosphere.soundSpeed;
+        const density = this._atmosphere.density;
+        const earthSoundSpeed = 340;
+
+        let pitchMultiplier = instrument.adjustPitch ? soundSpeed / earthSoundSpeed : 1.0;
+        const distanceAttenuation = 1 / (1 + distance);
+        const densityFactor = density / 1.225;
+        const volumeFactor = distanceAttenuation * Math.min(densityFactor, 2.0);
+
+        const baseFrequency = instrument.note;
+        const absorption = this._atmosphere.getAbsorption(baseFrequency);
+        const cutoffFrequency = Math.max(200, baseFrequency * Math.exp(-absorption * distance));
+
+        let resonanceShift = 0;
+        if (instrument.resonanceScale) {
+          resonanceShift = (soundSpeed / earthSoundSpeed - 1) * 0.3;
+        }
+
+        const audioParams = {
+          instrument,
+          atmosphere: this._atmosphere.id,
+          distance,
+          pitchMultiplier,
+          volumeFactor: volumeFactor * instrument.baseVolume * instrument.intensity,
+          cutoffFrequency,
+          resonanceShift,
+          delay: distance / soundSpeed,
+        };
+
+        const examinador = new ExaminadorAudio();
+        return examinador.examinar(audioParams);
+      }
+    }
+
+    const soundPropagator = new SoundPropagator();
+    atmosphereManager.init();
+    instrumentRegistry.init();
+
+    // ============================================================
+    // 2. SÍNTESIS DE AUDIO CON WEB AUDIO API
+    // ============================================================
+    let audioCtx = null;
+    let activeOscillators = [];
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    }
+
+    function playProcessedSound(datos) {
+      if (!audioCtx) initAudio();
+      if (!datos) return;
+
+      const now = audioCtx.currentTime;
+      const startTime = now + (datos.delay || 0);
+      const duration = 1.5; // segundos
+
+      // Oscilador principal
+      const osc = audioCtx.createOscillator();
+      const oscType = datos.instrument?.waveType || 'sine';
+      osc.type = oscType;
+      osc.frequency.setValueAtTime(datos.instrument.note * datos.pitchMultiplier, startTime);
+
+      // Ganancia con envolvente
+      const gainNode = audioCtx.createGain();
+      const vol = Math.min(datos.volumeFactor, 1.5); // limitar para proteger oídos
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(vol, startTime + 0.05);
+      gainNode.gain.exponentialRampToValueAtTime(vol * 0.3, startTime + 0.3);
+      gainNode.gain.linearRampToValueAtTime(0, startTime + duration);
+
+      // Filtro pasa-bajos (simula absorción atmosférica)
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(datos.cutoffFrequency, startTime);
+      filter.Q.setValueAtTime(0.7 + (datos.resonanceShift || 0), startTime);
+
+      // Resonancia adicional para instrumentos que escalan
+      if (datos.resonanceShift && datos.resonanceShift !== 0) {
+        const resFilter = audioCtx.createBiquadFilter();
+        resFilter.type = 'peaking';
+        resFilter.frequency.setValueAtTime(datos.instrument.note * datos.pitchMultiplier * 2, startTime);
+        resFilter.Q.setValueAtTime(5 + Math.abs(datos.resonanceShift) * 20, startTime);
+        resFilter.gain.setValueAtTime(datos.resonanceShift * 10, startTime);
+
+        osc.connect(resFilter);
+        resFilter.connect(filter);
+      } else {
+        osc.connect(filter);
+      }
+
+      filter.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+
+      // Guardar referencia para el visualizador
+      const soundEntry = { osc, gainNode, filter, startTime, duration, datos };
+      activeOscillators.push(soundEntry);
+
+      // Limpiar al terminar
+      osc.onended = () => {
+        const idx = activeOscillators.indexOf(soundEntry);
+        if (idx > -1) activeOscillators.splice(idx, 1);
+      };
+
+      return soundEntry;
+    }
+
+    // ============================================================
+    // 3. VISUALIZACIÓN (Canvas)
+    // ============================================================
+    const waveCanvas = document.getElementById('waveCanvas');
+    const waveCtx = waveCanvas.getContext('2d');
+    let analyserNode = null;
+    let animationId = null;
+
+    function setupAnalyser() {
+      if (!audioCtx) initAudio();
+      if (!analyserNode) {
+        analyserNode = audioCtx.createAnalyser();
+        analyserNode.fftSize = 256;
+        analyserNode.connect(audioCtx.destination);
+      }
+    }
+
+    function drawWaveform() {
+      if (!analyserNode) return;
+      const bufferLength = analyserNode.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      function draw() {
+        animationId = requestAnimationFrame(draw);
+        analyserNode.getByteTimeDomainData(dataArray);
+
+        waveCtx.fillStyle = '#0a0a18';
+        waveCtx.fillRect(0, 0, waveCanvas.width, waveCanvas.height);
+
+        waveCtx.lineWidth = 2;
+        waveCtx.strokeStyle = '#ff8800';
+        waveCtx.shadowBlur = 15;
+        waveCtx.shadowColor = '#ff5500';
+        waveCtx.beginPath();
+
+        const sliceWidth = waveCanvas.width / bufferLength;
+        let x = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          const v = dataArray[i] / 128.0;
+          const y = v * waveCanvas.height / 2;
+          if (i === 0) waveCtx.moveTo(x, y);
+          else waveCtx.lineTo(x, y);
+          x += sliceWidth;
+        }
+        waveCtx.lineTo(waveCanvas.width, waveCanvas.height / 2);
+        waveCtx.stroke();
+        waveCtx.shadowBlur = 0;
+      }
+      draw();
+    }
+
+    // Conectar el analyser entre el último nodo y el destino
+    function patchAnalyser() {
+      if (!audioCtx || !analyserNode) return;
+      // Re-conectamos: todos los gainNode -> analyser -> destination
+      // En nuestra implementación, al crear cada sonido conectamos gainNode -> destination.
+      // Para el analyser, vamos a interceptar: gainNode -> analyser -> destination.
+      // Simplificación: al crear sonido, conectamos gainNode a analyser y analyser a destination.
+    }
+
+    // Versión mejorada de playProcessedSound que usa analyser
+    function playProcessedSoundWithAnalyser(datos) {
+      if (!audioCtx) initAudio();
+      setupAnalyser();
+      if (!datos) return;
+
+      const now = audioCtx.currentTime;
+      const startTime = now + (datos.delay || 0);
+      const duration = 1.5;
+
+      const osc = audioCtx.createOscillator();
+      osc.type = datos.instrument?.waveType || 'sine';
+      osc.frequency.setValueAtTime(datos.instrument.note * datos.pitchMultiplier, startTime);
+
+      const gainNode = audioCtx.createGain();
+      const vol = Math.min(datos.volumeFactor, 1.5);
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(vol, startTime + 0.05);
+      gainNode.gain.exponentialRampToValueAtTime(vol * 0.3, startTime + 0.3);
+      gainNode.gain.linearRampToValueAtTime(0, startTime + duration);
+
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(datos.cutoffFrequency, startTime);
+      filter.Q.setValueAtTime(0.7 + (datos.resonanceShift || 0), startTime);
+
+      if (datos.resonanceShift && datos.resonanceShift !== 0) {
+        const resFilter = audioCtx.createBiquadFilter();
+        resFilter.type = 'peaking';
+        resFilter.frequency.setValueAtTime(datos.instrument.note * datos.pitchMultiplier * 2, startTime);
+        resFilter.Q.setValueAtTime(5 + Math.abs(datos.resonanceShift) * 20, startTime);
+        resFilter.gain.setValueAtTime(datos.resonanceShift * 10, startTime);
+        osc.connect(resFilter);
+        resFilter.connect(filter);
+      } else {
+        osc.connect(filter);
+      }
+
+      filter.connect(gainNode);
+      gainNode.connect(analyserNode);
+      // analyser ya conectado a destination en setupAnalyser
+
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+
+      const soundEntry = { osc, gainNode, filter, startTime, duration, datos };
+      activeOscillators.push(soundEntry);
+      osc.onended = () => {
+        const idx = activeOscillators.indexOf(soundEntry);
+        if (idx > -1) activeOscillators.splice(idx, 1);
+      };
+      return soundEntry;
+    }
+
+    // ============================================================
+    // 4. INTERFAZ DE USUARIO
+    // ============================================================
+    const atmosphereSelect = document.getElementById('atmosphereSelect');
+    const instrumentSelect = document.getElementById('instrumentSelect');
+    const keyboardDiv = document.getElementById('keyboard');
+    const atmoDataDiv = document.getElementById('atmoData');
+    const paramsInfoDiv = document.getElementById('paramsInfo');
+    const statusMsg = document.getElementById('statusMsg');
+    const sourceDot = document.getElementById('sourceDot');
+    const listenerDot = document.getElementById('listenerDot');
+
+    // Notas del teclado (frecuencias en Hz)
+    const notes = [
+      { label: 'Do4', freq: 261.63 },
+      { label: 'Re4', freq: 293.66 },
+      { label: 'Mi4', freq: 329.63 },
+      { label: 'Fa4', freq: 349.23 },
+      { label: 'Sol4', freq: 392.00 },
+      { label: 'La4', freq: 440.00 },
+      { label: 'Si4', freq: 493.88 },
+      { label: 'Do5', freq: 523.25 }
+    ];
+
+    // Construir teclado
+    notes.forEach((note, index) => {
+      const btn = document.createElement('button');
+      btn.textContent = note.label;
+      btn.addEventListener('click', () => playNote(note.freq, index));
+      keyboardDiv.appendChild(btn);
+    });
+
+    // Posición del oyente (centro) y fuente (variable según nota)
+    const listenerPos = { x: 50, y: 50 }; // porcentaje en minimapa
+    const sourcePositions = [
+      { x: 10, y: 50 }, { x: 20, y: 30 }, { x: 30, y: 70 }, { x: 40, y: 20 },
+      { x: 60, y: 80 }, { x: 70, y: 40 }, { x: 80, y: 60 }, { x: 90, y: 50 }
+    ];
+
+    function updateAtmoData() {
+      const id = atmosphereSelect.value;
+      const atm = atmosphereManager.get(id);
+      soundPropagator.setAtmosphere(atm);
+      atmoDataDiv.innerHTML = `
+        Presión: <span>${atm.pressure.toFixed(3)} atm</span> |
+        Temp: <span>${atm.temperature} K</span> |
+        Vel. sonido: <span>${atm.soundSpeed.toFixed(1)} m/s</span> |
+        Densidad: <span>${atm.density.toFixed(3)} kg/m³</span>
+      `;
+    }
+
+    function playNote(freq, index) {
+      initAudio();
+      setupAnalyser();
+      updateAtmoData();
+
+      const instrumentType = instrumentSelect.value;
+      const instrument = instrumentRegistry.create(instrumentType, freq, 1.0);
+
+      // Usar la posición correspondiente a la nota
+      const sourcePos = sourcePositions[index];
+      const sourcePosMeters = { x: sourcePos.x * 10, y: sourcePos.y * 10 };
+      const listenerPosMeters = { x: 250, y: 250 }; // centro en metros (500x500)
+
+      const result = soundPropagator.process(instrument, sourcePosMeters, listenerPosMeters);
+
+      // Actualizar minimapa
+      sourceDot.style.left = sourcePos.x + '%';
+      sourceDot.style.top = sourcePos.y + '%';
+      listenerDot.style.left = '50%';
+      listenerDot.style.top = '50%';
+
+      // Resaltar botón
+      const buttons = keyboardDiv.querySelectorAll('button');
+      buttons.forEach(b => b.classList.remove('playing'));
+      if (buttons[index]) buttons[index].classList.add('playing');
+      setTimeout(() => buttons[index]?.classList.remove('playing'), 300);
+
+      if (result.tipo === 'RECHAZADO' || !result.datos) {
+        statusMsg.textContent = '🔇 ' + (result.motivo || 'Rechazado');
+        statusMsg.className = 'status rejected';
+        paramsInfoDiv.textContent = 'Sonido rechazado: ' + result.motivo;
+        return;
+      }
+
+      const d = result.datos;
+      statusMsg.textContent = result.tipo === 'OK' ? '✅ Sonido reproducido' : '⚠️ Sonido parcial (degradado)';
+      statusMsg.className = 'status ' + (result.tipo === 'OK' ? 'ok' : 'partial');
+
+      paramsInfoDiv.innerHTML = `
+        Tipo: ${result.tipo} | Pitch: x${d.pitchMultiplier.toFixed(3)} |
+        Vol: ${d.volumeFactor.toFixed(3)} | Cutoff: ${d.cutoffFrequency.toFixed(0)} Hz |
+        Delay: ${d.delay.toFixed(3)}s | Dist: ${d.distance.toFixed(1)}m
+        ${d.resonanceShift ? '| ResShift: ' + d.resonanceShift.toFixed(3) : ''}
+      `;
+
+      // Reproducir sonido real
+      playProcessedSoundWithAnalyser(d);
+    }
+
+    // Inicializar
+    updateAtmoData();
+    atmosphereSelect.addEventListener('change', updateAtmoData);
+
+    // Iniciar visualización
+    setupAnalyser();
+    drawWaveform();
+
+    // Ajustar tamaño del canvas
+    function resizeCanvas() {
+      const rect = waveCanvas.parentElement.getBoundingClientRect();
+      waveCanvas.width = rect.width - 40;
+      waveCanvas.height = 150;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    console.log('🌌 Audio Planetario Interactivo listo.');
+    console.log('Selecciona un planeta, un instrumento y haz clic en las notas.');
+  </script>
+</body>
+</html>
