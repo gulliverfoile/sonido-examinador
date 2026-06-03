@@ -1,51 +1,67 @@
-README.md
-markdown
-# 🔊 Planetary Audio – Módulo de audio planetario con examinador TUSE
+# Audio Planetario Interactivo
 
-**Simulación de sonido en distintas atmósferas planetarias con un adaptador inteligente que examina, protege y decide cómo debe reproducirse cada sonido.**
+Este repositorio contiene dos implementaciones del sistema de audio planetario, que modela cómo sonarían distintos instrumentos en las atmósferas de otros planetas (Tierra, Marte, Venus, Titán). El sistema calcula la velocidad del sonido, la atenuación, la absorción y la propagación, y aplica un examinador lógico-ético para decidir si un sonido es viable.
 
----
+## Archivos incluidos
 
-## 🌍 ¿Qué es esto?
+### 1. `planetary-audio-standalone.js` (módulo original)
 
-Un módulo de audio que modela **cómo se escucharía un instrumento en diferentes atmósferas** (Tierra, Marte, Venus, Titán) aplicando física realista: velocidad del sonido, absorción, densidad, etc.  
-Pero no solo calcula: incluye un **examinador interno (TUSE)** que evalúa si el sonido resultante es seguro, coherente y ético antes de entregarlo al motor de audio.
+- **Descripción:** Versión monolítica en JavaScript puro (sin dependencias) que contiene toda la lógica planetaria.
+- **Contenido:**
+  - Clases y gestores de atmósferas (`Atmosphere`, `atmosphereManager`)
+  - Registro de instrumentos (`instrumentRegistry`)
+  - Examinador TUSE (corazón del sistema) que analiza, infiere y negocia parámetros
+  - Propagador de sonido (`SoundPropagator`) que calcula pitch, volumen, corte y retardo según atmósfera y distancia
+  - Fachada principal `planetaryAudio` lista para integrarse en un motor de juego
+  - Core simulado (`MockCore`) para pruebas en Node.js
+  - Demo autoejecutable que muestra casos de uso en consola
+- **Uso:**
+  - Se puede ejecutar directamente con Node.js: `node planetary-audio-standalone.js`
+  - Se puede importar como módulo en otro proyecto: `const planetaryAudio = require('./planetary-audio-standalone.js');`
+- **Objetivo:** Servir como núcleo de cálculo sin interfaz gráfica; ideal para integrarlo en videojuegos, simulaciones o como backend de una aplicación web.
 
----
+### 2. `planetary-audio-interactivo.html` (aplicación web gráfica)
 
-## 🎯 ¿Qué problema resuelve?
+- **Descripción:** Versión interactiva que envuelve la lógica anterior (reescrita ligeramente para el navegador) y añade:
+  - Síntesis de audio real usando la **Web Audio API** (osciladores, filtros, envolventes)
+  - Interfaz gráfica con:
+    - Selector de planeta
+    - Selector de instrumento
+    - Teclado de 8 notas (Do4 a Do5)
+    - Visualizador de forma de onda en tiempo real (canvas)
+    - Minimapa con la posición de la fuente de sonido y el oyente
+    - Panel de datos atmosféricos y parámetros calculados en vivo
+    - Indicador de estado (OK, parcial, rechazado)
+- **Uso:**
+  - Simplemente abre el archivo `.html` en cualquier navegador moderno (Chrome, Firefox, Edge, Safari).
+  - **Importante:** La Web Audio API requiere interacción del usuario (clic) para iniciar el contexto de audio. Haz clic en cualquier parte de la página o en una nota para habilitar el sonido.
+- **Objetivo:** Hacer el sistema accesible a cualquier persona sin necesidad de instalar nada, permitiendo experimentar auditivamente las diferencias planetarias.
 
-Imagina que tu juego o simulación cambia de planeta. Un mismo sonido (una flauta) se comporta distinto:
-- En **Marte** los agudos se pierden casi de inmediato.
-- En **Venus** el volumen puede resultar ensordecedor.
-- En **Titán** el sonido se propaga con un retardo extraño.
+## Cómo probar rápidamente (GitHub Pages)
 
-Sin un control, el motor de audio podría recibir parámetros absurdos o peligrosos (volúmenes > 2.0, frecuencias inaudibles, etc.).  
-**El examinador TUSE actúa como un guardián**: analiza cada sonido y decide si reproducirlo completo, degradarlo de forma segura, inferir valores faltantes o rechazarlo.
+1. Sube ambos archivos a un repositorio de GitHub.
+2. Ve a la configuración del repositorio > **Pages**.
+3. Selecciona la rama principal (main) y la carpeta raíz.
+4. Guarda. En unos segundos tendrás una URL pública como `https://tuusuario.github.io/planetary-audio/planetary-audio-interactivo.html`.
+5. Comparte el enlace para que cualquiera pueda probarlo.
 
----
-
-## 🧱 Arquitectura
-┌─────────────────────────┐
-│ planetaryAudio │ ← fachada pública
-└───────────┬─────────────┘
-│
-┌───────────▼─────────────┐
-│ SoundPropagator │ ← física + llamada al examinador
-└───────────┬─────────────┘
-│
-┌───────────▼─────────────┐
-│ Examinador TUSE │ ← 6 pasos de decisión
-└───────────┬─────────────┘
-│
-┌───────────▼─────────────┐
-│ Core (motor del juego) │ ← reproduce o rechaza
-└─────────────────────────┘
+## Estructura recomendada del repositorio
+/
+├── planetary-audio-standalone.js # Módulo original Node.js
+├── planetary-audio-interactivo.html # Demo interactiva para navegador
+├── README.md # Este archivo
+└── (opcional) assets/ # Imágenes, iconos, etc.
 
 text
 
-- **Dominio puro** (atmósferas, instrumentos): sin dependencias externas, solo física.
-- **Propagador**: calcula los parámetros acústicos para una fuente y un oyente.
+## Relación entre los dos archivos
+
+- El HTML **contiene una reimplementación adaptada** de las clases de atmósferas, instrumentos, propagador y examinador (porque la Web Audio API necesita ejecutarse en el navegador y requiere algunos ajustes). La lógica planetaria es idéntica.
+- Si se desea una sola fuente de verdad, se puede extraer la lógica pura a un archivo `.js` compartido e importarlo en ambos entornos. La demo HTML actual es autocontenida para facilitar su distribución.
+
+## Créditos
+
+Sistema original desarrollado como exploración de síntesis de audio en entornos planetarios. La versión web interactiva se generó para hacerlo accesible a más personas.
 - **Examinador TUSE**: aplica el algoritmo de 6 pasos (Hechos, Creatividad, Lógica, Ética, Negociación, Coherencia) para decidir el destino del sonido.
 - **Fachada (`planetaryAudio`)**: API sencilla para el resto del juego.
 
