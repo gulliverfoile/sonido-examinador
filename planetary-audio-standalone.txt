@@ -1,0 +1,125 @@
+# 🌍 Audio Planetario – Sampler + Grabación con Física Atmosférica
+
+**Audio Planetario** es una aplicación web interactiva que simula cómo sonaría una muestra de audio en diferentes atmósferas planetarias. Combina un sampler polifónico, un modelo físico de propagación del sonido, visualización en tiempo real y grabación de la mezcla resultante, todo en un solo archivo HTML.
+
+---
+
+## 🚀 ¿Qué hace?
+
+- **Carga cualquier archivo de audio** y utilízalo como muestra base.
+- **Selecciona un fragmento** arrastrando marcadores sobre la forma de onda.
+- **Toca notas en un teclado virtual**: cada nota dispara una capa del sample con altura, volumen, filtro y retardo distintos.
+- **Cambia de atmósfera** (Tierra, Marte, Venus, Titán) y observa cómo afecta a la propagación del sonido (velocidad, atenuación, absorción).
+- **Arrastra la fuente sonora** en un minimapa y escucha cómo cambia el resultado espacial.
+- **Graba tu interpretación** en tiempo real (todas las capas superpuestas) y descarga el resultado como archivo de audio.
+
+---
+
+## 🧠 ¿Cómo funciona?
+
+### Física atmosférica
+Cada planeta tiene definidos:
+- Presión, temperatura, masa molar del gas y coeficiente adiabático.
+- Coeficientes de absorción para distintas frecuencias.
+
+Con estos datos se calcula:
+- Velocidad del sonido.
+- Densidad del medio.
+- Atenuación por distancia y densidad.
+- Filtrado paso bajo dependiente de la frecuencia y la absorción.
+
+La absorción se interpola linealmente para cualquier frecuencia tocada, logrando un comportamiento continuo.
+
+### Motor de audio (Web Audio API)
+- La muestra original se recorta con pequeños fundidos para evitar clics.
+- Cada nota dispara un `AudioBufferSourceNode` independiente, procesado con:
+  - `playbackRate` para el cambio de tono.
+  - `BiquadFilterNode` como filtro paso bajo (simula pérdida de agudos por absorción).
+  - `GainNode` con envolvente para modelar atenuación y evitar chasquidos.
+  - Retardo calculado según la distancia fuente‑oyente.
+- Todas las voces pasan por un `AnalyserNode` que alimenta el visualizador y por un `MediaStreamDestination` que permite la grabación.
+
+### Grabación
+Se utiliza `MediaRecorder` sobre el stream de salida. El formato se elige automáticamente según el navegador (`audio/webm`, `audio/ogg`, etc.). Al detener la grabación se genera un enlace de descarga.
+
+### Arquitectura del código
+El proyecto sigue una arquitectura **hexagonal (puertos y adaptadores)** dentro de un único archivo HTML:
+
+- **Dominio**: `Atmosphere`, `SoundPropagator` (lógica pura, sin dependencias).
+- **Puertos**: interfaces implícitas (documentadas) para audio, grabación y renderizado.
+- **Infraestructura**: `WebAudioEngine`, `MediaRecorderAdapter`, `CanvasWaveformRenderer`, `AnalyserVisualizer`.
+- **Aplicación**: casos de uso (`LoadSampleUseCase`, `PlayNoteUseCase`, `RecordMixUseCase`, `ChangeAtmosphereUseCase`) que orquestan dominio e infraestructura.
+- **UI**: `PlanetUI`, `MinimapController`, que conectan el DOM con los casos de uso.
+
+Esta separación facilita el mantenimiento, los tests y una posible migración a múltiples archivos o incluso a un backend.
+
+---
+
+## 🕹️ Cómo usarlo
+
+1. **Abre el archivo `index.html`** en un navegador moderno (Chrome, Edge, Firefox).
+2. **Carga una muestra** haciendo clic en "Seleccionar archivo de audio" (formatos comunes: WAV, MP3, OGG).
+3. **Selecciona un fragmento** arrastrando las líneas verde (inicio) y roja (fin) sobre la forma de onda.
+4. **Elige una atmósfera** en el menú desplegable (cambiará los parámetros físicos).
+5. **Toca las notas** del teclado para superponer capas. Prueba a mover la fuente (círculo naranja) en el minimapa mientras tocas.
+6. **Graba tu sesión** pulsando "Grabar", toca varias notas y pulsa "Parar". Aparecerá un enlace para descargar la mezcla.
+
+---
+
+## 🧩 Tecnologías utilizadas
+
+- **HTML5 / CSS3** (Grid, Flexbox, variables, backdrop-filter)
+- **JavaScript (ES6+)** con clases, módulos y promesas
+- **Web Audio API** (AudioContext, nodos de audio, Analyser, MediaStreamDestination)
+- **Canvas API** para visualización de onda y analizador
+- **MediaRecorder API** para grabación
+
+---
+
+## 📁 Estructura del código (resumen)
+HTML
+├── Estilos (CSS)
+└── Script (IIFE)
+├── Dominio
+│ ├── Atmosphere
+│ └── SoundPropagator
+├── Puertos (interfaces documentadas)
+├── Infraestructura
+│ ├── WebAudioEngine
+│ ├── MediaRecorderAdapter
+│ ├── CanvasWaveformRenderer
+│ └── AnalyserVisualizer
+├── Aplicación (Casos de uso)
+│ ├── LoadSampleUseCase
+│ ├── PlayNoteUseCase
+│ ├── RecordMixUseCase
+│ └── ChangeAtmosphereUseCase
+├── UI
+│ ├── PlanetUI
+│ └── MinimapController
+└── Composición (main)
+
+text
+
+---
+
+## 🌟 Estado actual y mejoras futuras
+
+El proyecto es completamente funcional y ha sido diseñado siguiendo buenas prácticas (modularidad, separación de responsabilidades, sin duplicidades, soporte táctil). Algunas ideas para expandirlo:
+
+- Más atmósferas (Júpiter, exoplanetas).
+- Reverberación y reflexiones simples.
+- Exportación directa a WAV sin recodificación.
+- Modo multitoque para tocar acordes.
+- Persistencia de configuraciones (localStorage).
+- Versión multijugador con WebSockets.
+
+---
+
+## 📄 Licencia
+
+Este proyecto es de dominio público. Siéntete libre de usarlo, modificarlo y compartirlo.
+
+---
+
+¡Disfruta explorando el sonido de otros mundos! 🚀🎹
