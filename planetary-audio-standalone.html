@@ -2,8 +2,8 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Audio Planetario – Sampler + Grabación</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, maximum-scale=2.0">
+  <title>Audio Planetario – Modular Hexagonal</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -20,7 +20,7 @@
     h1 {
       text-align: center;
       margin-bottom: 10px;
-      font-size: 2rem;
+      font-size: clamp(1.5rem, 5vw, 2rem);
       background: linear-gradient(135deg, #ffcc00, #ff6600);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
@@ -32,7 +32,9 @@
       grid-template-columns: 1fr 1fr;
       gap: 20px;
     }
-    @media (max-width: 750px) { .container { grid-template-columns: 1fr; } }
+    @media (max-width: 750px) {
+      .container { grid-template-columns: 1fr; }
+    }
     .panel {
       background: rgba(20, 20, 50, 0.8);
       border: 1px solid rgba(100, 100, 200, 0.3);
@@ -41,8 +43,8 @@
       backdrop-filter: blur(10px);
     }
     .panel h2 { margin-bottom: 12px; font-size: 1.2rem; color: #aaccff; }
-    select, button, input { 
-      width: 100%; padding: 10px 14px; margin-bottom: 10px; 
+    select, button, input {
+      width: 100%; padding: 10px 14px; margin-bottom: 10px;
       border-radius: 8px; border: 1px solid rgba(150, 150, 220, 0.4);
       background: rgba(30, 30, 60, 0.9); color: #ffffff; font-size: 1rem;
       cursor: pointer; transition: all 0.2s;
@@ -52,13 +54,15 @@
       display: block; text-align: center; padding: 12px;
       background: linear-gradient(135deg, #444488, #222255);
       border-radius: 8px; cursor: pointer; margin-bottom: 10px;
+      font-size: 0.95rem;
     }
     .file-label:hover { background: linear-gradient(135deg, #5555aa, #333366); }
     .keyboard {
       display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 15px;
     }
     .keyboard button {
-      padding: 16px 8px; font-weight: bold; font-size: 1rem;
+      padding: clamp(10px, 2vw, 16px) clamp(4px, 1vw, 8px);
+      font-weight: bold; font-size: clamp(0.8rem, 2.5vw, 1rem);
       background: linear-gradient(180deg, #2a2a5a 0%, #1a1a3a 100%);
       border: 2px solid #4a4a8a; text-shadow: 0 0 8px rgba(200,200,255,0.5);
     }
@@ -68,18 +72,25 @@
     }
     .atmo-data { font-size: 0.85rem; line-height: 1.6; color: #aabbdd; margin-top: 8px; }
     .atmo-data span { color: #ffcc66; font-weight: bold; }
-    canvas { width: 100%; height: 150px; border-radius: 8px; background: #0a0a18; margin-top: 8px; display: block; }
+    canvas {
+      width: 100%; height: auto; border-radius: 8px; background: #0a0a18;
+      margin-top: 8px; display: block;
+    }
+    .wave-canvas { height: 150px; }
+    .analyser-canvas { height: 80px; }
     .minimap {
       position: relative; width: 100%; height: 150px;
       background: radial-gradient(circle at center, #1a2a3a 0%, #0a0a18 100%);
       border-radius: 8px; overflow: hidden; margin-top: 8px;
     }
     .source-dot, .listener-dot {
-      position: absolute; width: 14px; height: 14px; border-radius: 50%;
-      transform: translate(-50%, -50%); transition: all 0.3s; box-shadow: 0 0 12px;
+      position: absolute; width: clamp(12px, 3vw, 14px); height: clamp(12px, 3vw, 14px);
+      border-radius: 50%; transform: translate(-50%, -50%); transition: none;
+      box-shadow: 0 0 12px; z-index: 2; cursor: grab;
     }
-    .source-dot { background: #ff5500; box-shadow: 0 0 12px #ff5500; z-index: 2; }
-    .listener-dot { background: #00ccff; box-shadow: 0 0 12px #00ccff; z-index: 3; }
+    .source-dot:active { cursor: grabbing; }
+    .source-dot { background: #ff5500; box-shadow: 0 0 12px #ff5500; }
+    .listener-dot { background: #00ccff; box-shadow: 0 0 12px #00ccff; z-index: 3; pointer-events: none; }
     .params-info {
       font-family: 'Courier New', monospace; font-size: 0.75rem; color: #99bbee;
       margin-top: 8px; background: #0a0a18; padding: 8px; border-radius: 6px;
@@ -96,7 +107,10 @@
     .recording-panel button {
       flex: 1; padding: 12px; font-size: 1.1rem; margin: 0;
     }
-    #downloadLink { display: none; color: #ffcc00; text-align: center; margin-top: 8px; }
+    #downloadLink {
+      display: none; color: #ffcc00; text-align: center; margin-top: 8px;
+      word-break: break-all; font-size: 0.9rem;
+    }
   </style>
 </head>
 <body>
@@ -123,29 +137,31 @@
       <div class="params-info" id="paramsInfo">Carga un audio para empezar</div>
       <div class="status ok" id="statusMsg">Esperando audio...</div>
 
-      <!-- NUEVA SECCIÓN DE GRABACIÓN -->
       <h2 style="margin-top:20px;">🔴 Grabación de capas</h2>
       <div class="recording-panel">
         <button id="recBtn" style="background:#aa3333;">⏺ Grabar</button>
         <button id="stopBtn" disabled style="background:#555;">⏹ Parar</button>
       </div>
-      <a id="downloadLink" href="#" download="grabacion_planetaria.wav">💾 Descargar WAV</a>
+      <a id="downloadLink" href="#" download="grabacion_planetaria">💾 Descargar</a>
     </div>
 
     <!-- Panel de visualización -->
     <div class="panel">
       <h2>📊 Forma de onda y selección</h2>
-      <canvas id="waveCanvas"></canvas>
+      <canvas id="waveCanvas" class="wave-canvas"></canvas>
       <div class="selection-info" id="selectionInfo">Arrastra las líneas para elegir inicio/fin</div>
 
-      <h2 style="margin-top:15px;">🗺️ Posición (oyente en centro)</h2>
+      <h2 style="margin-top:15px;">📈 Salida en tiempo real</h2>
+      <canvas id="analyserCanvas" class="analyser-canvas"></canvas>
+
+      <h2 style="margin-top:15px;">🗺️ Posición (arrastra la fuente)</h2>
       <div class="minimap" id="minimap">
         <div class="source-dot" id="sourceDot" style="left:10%;top:50%;"></div>
         <div class="listener-dot" id="listenerDot" style="left:50%;top:50%;"></div>
       </div>
       <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:#8899bb;">
-        <span>🔴 Fuente</span>
-        <span>🔵 Oyente</span>
+        <span>🔴 Fuente (arrastrable)</span>
+        <span>🔵 Oyente (fijo)</span>
       </div>
     </div>
   </div>
@@ -154,430 +170,905 @@
   </div>
 
   <script>
-    // ============================================================
-    // 1. ATMÓSFERAS Y PROPAGACIÓN (intacto)
-    // ============================================================
-    class Atmosphere {
-      constructor(id, config) {
-        this.id = id;
-        this.name = config.name;
-        this.pressure = config.pressure;
-        this.temperature = config.temperature;
-        this.molarMass = config.molarMass;
-        this.gamma = config.gamma;
-        this.absorptionCoeffs = config.absorptionCoeffs || {};
+    (function() {
+      // ============================================================
+      // DOMINIO: Entidades y lógica pura (sin dependencias externas)
+      // ============================================================
+
+      /**
+       * Entidad que representa una atmósfera planetaria.
+       * Sus propiedades definen cómo se propaga el sonido.
+       */
+      class Atmosphere {
+        /**
+         * @param {string} id - Identificador único
+         * @param {Object} config - Configuración de la atmósfera
+         * @param {string} config.name - Nombre descriptivo
+         * @param {number} config.pressure - Presión en atmósferas
+         * @param {number} config.temperature - Temperatura en Kelvin
+         * @param {number} config.molarMass - Masa molar en kg/mol
+         * @param {number} config.gamma - Índice adiabático
+         * @param {Object} config.absorptionCoeffs - Pares {frecuencia: coeficiente}
+         */
+        constructor(id, config) {
+          this.id = id;
+          this.name = config.name;
+          this.pressure = config.pressure;
+          this.temperature = config.temperature;
+          this.molarMass = config.molarMass;
+          this.gamma = config.gamma;
+          this.absorptionCoeffs = config.absorptionCoeffs || {};
+        }
+
+        /** Velocidad del sonido en m/s */
+        get soundSpeed() {
+          const R = 8.314; // Constante universal de gases ideales
+          return Math.sqrt((this.gamma * R * this.temperature) / this.molarMass);
+        }
+
+        /** Densidad del medio en kg/m³ */
+        get density() {
+          const R = 0.082; // atm·L/(mol·K)
+          return (this.pressure * this.molarMass) / (R * this.temperature);
+        }
+
+        /**
+         * Calcula el coeficiente de absorción para una frecuencia dada,
+         * interpolando linealmente entre los valores conocidos.
+         * @param {number} frequency - Frecuencia en Hz
+         * @returns {number} Coeficiente de absorción
+         */
+        getAbsorption(frequency) {
+          const freqs = Object.keys(this.absorptionCoeffs).map(Number).sort((a, b) => a - b);
+          if (freqs.length === 0) return 0.001;
+          if (frequency <= freqs[0]) return this.absorptionCoeffs[freqs[0]];
+          if (frequency >= freqs[freqs.length - 1]) return this.absorptionCoeffs[freqs[freqs.length - 1]];
+
+          for (let i = 0; i < freqs.length - 1; i++) {
+            if (freqs[i] <= frequency && frequency <= freqs[i + 1]) {
+              const t = (frequency - freqs[i]) / (freqs[i + 1] - freqs[i]);
+              return this.absorptionCoeffs[freqs[i]] * (1 - t) + this.absorptionCoeffs[freqs[i + 1]] * t;
+            }
+          }
+          return 0.001;
+        }
       }
-      get soundSpeed() {
-        const R = 8.314;
-        return Math.sqrt((this.gamma * R * this.temperature) / this.molarMass);
+
+      /**
+       * Servicio de dominio: calcula parámetros de propagación del sonido
+       * entre una fuente y un oyente en la atmósfera actual.
+       */
+      class SoundPropagator {
+        constructor() {
+          this.atmosphere = null;
+        }
+
+        /**
+         * @param {Atmosphere} atmosphere
+         */
+        setAtmosphere(atmosphere) {
+          this.atmosphere = atmosphere;
+        }
+
+        /**
+         * Procesa una nota y devuelve parámetros de audio.
+         * @param {number} noteFreq - Frecuencia de la nota tocada
+         * @param {number} baseFreq - Frecuencia base de la muestra (Do4 ~261.63)
+         * @param {{x:number, y:number}} sourcePos - Posición de la fuente
+         * @param {{x:number, y:number}} listenerPos - Posición del oyente
+         * @returns {Object|null} Parámetros: pitchMultiplier, volumeFactor, cutoffFrequency, delay, distance
+         */
+        process(noteFreq, baseFreq, sourcePos, listenerPos) {
+          if (!this.atmosphere) return null;
+
+          const dx = listenerPos.x - sourcePos.x;
+          const dy = listenerPos.y - sourcePos.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const speed = this.atmosphere.soundSpeed;
+          const density = this.atmosphere.density;
+
+          const pitchRatio = noteFreq / baseFreq;
+          // Atenuación por distancia y densidad (limitada)
+          const distanceAttenuation = 1 / (1 + dist);
+          const densityFactor = density / 1.225; // normalizado a Tierra
+          const volumeFactor = distanceAttenuation * Math.min(densityFactor, 2.0) * 0.8;
+
+          const absorption = this.atmosphere.getAbsorption(noteFreq);
+          const cutoffFrequency = Math.max(200, noteFreq * Math.exp(-absorption * dist));
+
+          return {
+            pitchMultiplier: pitchRatio,
+            volumeFactor: Math.min(volumeFactor, 1.5),
+            cutoffFrequency,
+            delay: dist / speed,
+            distance: dist
+          };
+        }
       }
-      get density() {
-        const R = 0.082;
-        return (this.pressure * this.molarMass) / (R * this.temperature);
-      }
-      getAbsorption(frequency) {
-        const freqs = Object.keys(this.absorptionCoeffs).map(Number).sort((a,b)=>a-b);
-        if (!freqs.length) return 0.001;
-        let closest = freqs[0];
-        for (const f of freqs) if (f <= frequency) closest = f;
-        return this.absorptionCoeffs[closest] || 0.001;
-      }
-    }
 
-    const atmosphereManager = {
-      _atmospheres: {},
-      init() {
-        this.register('tierra', new Atmosphere('tierra', {
-          name:'Tierra', pressure:1.0, temperature:293, molarMass:0.029, gamma:1.4,
-          absorptionCoeffs:{100:0.001,1000:0.003,10000:0.01}
-        }));
-        this.register('marte', new Atmosphere('marte', {
-          name:'Marte', pressure:0.006, temperature:210, molarMass:0.044, gamma:1.3,
-          absorptionCoeffs:{100:0.01,1000:0.1,10000:0.5}
-        }));
-        this.register('venus', new Atmosphere('venus', {
-          name:'Venus', pressure:92, temperature:737, molarMass:0.044, gamma:1.3,
-          absorptionCoeffs:{100:0.0001,1000:0.001,10000:0.05}
-        }));
-        this.register('titan', new Atmosphere('titan', {
-          name:'Titán', pressure:1.45, temperature:94, molarMass:0.028, gamma:1.4,
-          absorptionCoeffs:{100:0.0005,1000:0.002,10000:0.008}
-        }));
-      },
-      register(id, atm) { this._atmospheres[id] = atm; },
-      get(id) { return this._atmospheres[id] || this._atmospheres['tierra']; }
-    };
+      // ============================================================
+      // PUERTOS (interfaces por convención)
+      // No se implementan, solo se documentan como contratos esperados.
+      // ============================================================
+      // AudioEnginePort: playSlice(buffer, params) : void
+      // RecorderPort: start() : void, stop() : void, onDataAvailable(cb) : void, getBlob() : Blob
+      // RendererPort: drawWaveform(buffer, start, end) : void, setBuffer(buffer) : void
+      // MinimapPort: setSourcePosition(x,y), getSourcePosition() : {x,y}, onPositionChange(cb)
 
-    const soundPropagator = {
-      setAtmosphere(atm) { this._atmosphere = atm; },
-      process(noteFreq, baseFreq, sourcePos, listenerPos) {
-        if (!this._atmosphere) return null;
-        const dx = listenerPos.x - sourcePos.x;
-        const dy = listenerPos.y - sourcePos.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        const speed = this._atmosphere.soundSpeed;
-        const density = this._atmosphere.density;
+      // ============================================================
+      // INFRAESTRUCTURA: Adaptadores concretos (Web Audio, Canvas, etc.)
+      // ============================================================
 
-        const pitchRatio = noteFreq / baseFreq;
-        const distanceAttenuation = 1 / (1 + dist);
-        const densityFactor = density / 1.225;
-        const volumeFactor = distanceAttenuation * Math.min(densityFactor, 2.0) * 0.8;
+      /**
+       * Motor de audio basado en Web Audio API.
+       * Implementa AudioEnginePort.
+       */
+      class WebAudioEngine {
+        constructor() {
+          this.audioCtx = null;
+          this.analyser = null;
+          this.mediaStreamDest = null;
+          this.fullBuffer = null;
+          this.initialized = false;
+        }
 
-        const absorption = this._atmosphere.getAbsorption(noteFreq);
-        const cutoffFrequency = Math.max(200, noteFreq * Math.exp(-absorption * dist));
+        /** Inicializa el contexto de audio (debe ser llamado tras gesto de usuario) */
+        init() {
+          if (this.initialized) return;
+          try {
+            this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            this.analyser = this.audioCtx.createAnalyser();
+            this.analyser.fftSize = 256;
+            this.analyser.connect(this.audioCtx.destination);
 
-        return {
-          pitchMultiplier: pitchRatio,
-          volumeFactor: Math.min(volumeFactor, 1.5),
-          cutoffFrequency,
-          delay: dist / speed,
-          distance: dist
-        };
-      }
-    };
-
-    atmosphereManager.init();
-    soundPropagator.setAtmosphere(atmosphereManager.get('tierra'));
-
-    // ============================================================
-    // 2. AUDIO CONTEXT, SAMPLER, ANALIZADOR
-    // ============================================================
-    let audioCtx = null;
-    let analyserNode = null;
-    let fullAudioBuffer = null;
-    let selectedStart = 0;
-    let selectedEnd = 0.5;
-    let canvas, ctx;
-    let isDragging = null;
-
-    // Para grabación
-    let mediaStreamDestination = null;
-    let mediaRecorder = null;
-    let recordedChunks = [];
-
-    function initAudio() {
-      if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-      if (!analyserNode) {
-        analyserNode = audioCtx.createAnalyser();
-        analyserNode.fftSize = 256;
-        analyserNode.connect(audioCtx.destination);
-      }
-      if (!mediaStreamDestination) {
-        mediaStreamDestination = audioCtx.createMediaStreamDestination();
-        // Conectamos el analyser también al destino de grabación
-        analyserNode.connect(mediaStreamDestination);
-      }
-    }
-
-    // ============================================================
-    // 3. DIBUJADO DE FORMA DE ONDA Y SELECCIÓN
-    // ============================================================
-    function drawWaveform() {
-      if (!canvas || !ctx) return;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (!fullAudioBuffer) return;
-
-      const data = fullAudioBuffer.getChannelData(0);
-      const step = Math.ceil(data.length / canvas.width);
-      ctx.beginPath();
-      ctx.strokeStyle = '#4488ff';
-      ctx.lineWidth = 1;
-
-      for (let i = 0; i < canvas.width; i++) {
-        let min = 1.0, max = -1.0;
-        for (let j = 0; j < step; j++) {
-          const idx = i * step + j;
-          if (idx < data.length) {
-            const val = data[idx];
-            if (val < min) min = val;
-            if (val > max) max = val;
+            this.mediaStreamDest = this.audioCtx.createMediaStreamDestination();
+            this.analyser.connect(this.mediaStreamDest); // Todo lo que pase por analyser se graba
+            this.initialized = true;
+          } catch (e) {
+            console.error('Web Audio no soportado', e);
+            throw new Error('Web Audio no disponible');
           }
         }
-        const x = i;
-        const y1 = ((min + 1) / 2) * canvas.height;
-        const y2 = ((max + 1) / 2) * canvas.height;
-        ctx.moveTo(x, y1);
-        ctx.lineTo(x, y2);
-      }
-      ctx.stroke();
 
-      // Línea de inicio (verde)
-      const startX = (selectedStart / fullAudioBuffer.duration) * canvas.width;
-      ctx.beginPath();
-      ctx.strokeStyle = '#00ff88';
-      ctx.lineWidth = 2;
-      ctx.moveTo(startX, 0);
-      ctx.lineTo(startX, canvas.height);
-      ctx.stroke();
-
-      // Línea de final (roja)
-      const endX = (selectedEnd / fullAudioBuffer.duration) * canvas.width;
-      ctx.beginPath();
-      ctx.strokeStyle = '#ff4444';
-      ctx.lineWidth = 2;
-      ctx.moveTo(endX, 0);
-      ctx.lineTo(endX, canvas.height);
-      ctx.stroke();
-    }
-
-    function updateSelectionInfo() {
-      document.getElementById('selectionInfo').textContent =
-        `Inicio: ${selectedStart.toFixed(3)}s | Fin: ${selectedEnd.toFixed(3)}s | Duración: ${(selectedEnd - selectedStart).toFixed(3)}s`;
-    }
-
-    function setupCanvasEvents() {
-      canvas.addEventListener('mousedown', (e) => {
-        if (!fullAudioBuffer) return;
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const totalDuration = fullAudioBuffer.duration;
-        const time = (x / canvas.width) * totalDuration;
-
-        const startX = (selectedStart / totalDuration) * canvas.width;
-        const endX = (selectedEnd / totalDuration) * canvas.width;
-        const threshold = 10;
-
-        if (Math.abs(x - startX) < threshold) {
-          isDragging = 'start';
-        } else if (Math.abs(x - endX) < threshold) {
-          isDragging = 'end';
+        /** Carga un buffer desde un ArrayBuffer y lo almacena */
+        async loadSample(arrayBuffer) {
+          if (!this.initialized) this.init();
+          this.fullBuffer = await this.audioCtx.decodeAudioData(arrayBuffer);
+          return this.fullBuffer;
         }
-        e.preventDefault();
-      });
 
-      canvas.addEventListener('mousemove', (e) => {
-        if (!isDragging || !fullAudioBuffer) return;
-        const rect = canvas.getBoundingClientRect();
-        const x = Math.max(0, Math.min(e.clientX - rect.left, canvas.width));
-        const newTime = (x / canvas.width) * fullAudioBuffer.duration;
-
-        if (isDragging === 'start') {
-          selectedStart = Math.min(newTime, selectedEnd - 0.01);
-        } else if (isDragging === 'end') {
-          selectedEnd = Math.max(newTime, selectedStart + 0.01);
+        /** Retorna el nodo analizador para visualización */
+        getAnalyserNode() {
+          return this.analyser;
         }
-        drawWaveform();
-        updateSelectionInfo();
-      });
 
-      window.addEventListener('mouseup', () => { isDragging = null; });
-    }
+        /** Retorna el stream de destino para grabación */
+        getMediaStream() {
+          return this.mediaStreamDest.stream;
+        }
 
-    // Carga de audio
-    document.getElementById('audioFileInput').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      initAudio();
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        fullAudioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-        document.getElementById('fileLabel').textContent = `✅ ${file.name}`;
-        selectedStart = 0;
-        selectedEnd = Math.min(0.5, fullAudioBuffer.duration);
-        drawWaveform();
-        updateSelectionInfo();
-        document.getElementById('statusMsg').textContent = 'Muestra cargada. Toca y graba.';
-        document.getElementById('statusMsg').className = 'status ok';
-      } catch (err) {
-        alert('Error al cargar el audio: ' + err.message);
-      }
-    });
+        /**
+         * Crea un buffer recortado con fade in/out para evitar clics.
+         * @param {number} startSec - inicio en segundos
+         * @param {number} endSec - fin en segundos
+         * @param {number} fadeMs - duración del fundido en ms (por defecto 5ms)
+         * @returns {AudioBuffer} Nuevo buffer recortado y suavizado
+         */
+        createSlice(startSec, endSec, fadeMs = 5) {
+          if (!this.fullBuffer) return null;
+          const sampleRate = this.fullBuffer.sampleRate;
+          const startSample = Math.floor(startSec * sampleRate);
+          const endSample = Math.floor(endSec * sampleRate);
+          const lengthSamples = endSample - startSample;
+          if (lengthSamples <= 0) return null;
 
-    // Reproducir sample con efectos (ahora conectado al destino de grabación)
-    function playSample(noteFreq, noteIndex) {
-      if (!fullAudioBuffer || !audioCtx) return;
-      initAudio();
+          const channels = this.fullBuffer.numberOfChannels;
+          const slice = this.audioCtx.createBuffer(channels, lengthSamples, sampleRate);
+          const fadeSamples = Math.min(Math.floor(fadeMs / 1000 * sampleRate), Math.floor(lengthSamples / 2));
 
-      const baseFreq = 261.63;
-      const sourcePositions = [
-        { x: 2, y: 5 }, { x: 3, y: 2 }, { x: 4, y: 8 }, { x: 1, y: 3 },
-        { x: 8, y: 4 }, { x: 6, y: 1 }, { x: 7, y: 9 }, { x: 5, y: 6 }
-      ];
-      const listenerPos = { x: 5, y: 5 };
+          for (let ch = 0; ch < channels; ch++) {
+            const origData = this.fullBuffer.getChannelData(ch);
+            const sliceData = slice.getChannelData(ch);
+            // Copiar datos
+            for (let i = 0; i < lengthSamples; i++) {
+              sliceData[i] = origData[startSample + i];
+            }
+            // Aplicar fade in
+            for (let i = 0; i < fadeSamples; i++) {
+              const gain = i / fadeSamples;
+              sliceData[i] *= gain;
+            }
+            // Aplicar fade out
+            for (let i = lengthSamples - fadeSamples; i < lengthSamples; i++) {
+              const gain = (lengthSamples - 1 - i) / fadeSamples;
+              sliceData[i] *= gain;
+            }
+          }
+          return slice;
+        }
 
-      const props = soundPropagator.process(noteFreq, baseFreq, sourcePositions[noteIndex], listenerPos);
-      if (!props) return;
+        /**
+         * Reproduce un buffer con efectos (pitch, volumen, filtro, retardo).
+         * @param {AudioBuffer} buffer - El buffer a reproducir
+         * @param {Object} params - Parámetros de reproducción
+         */
+        playSlice(buffer, params) {
+          if (!buffer || !this.initialized) return;
+          const now = this.audioCtx.currentTime;
+          const source = this.audioCtx.createBufferSource();
+          source.buffer = buffer;
+          source.playbackRate.setValueAtTime(params.pitchMultiplier, now);
 
-      const sampleRate = fullAudioBuffer.sampleRate;
-      const startSample = Math.floor(selectedStart * sampleRate);
-      const endSample = Math.floor(selectedEnd * sampleRate);
-      const lengthSamples = endSample - startSample;
-      if (lengthSamples <= 0) return;
+          const filter = this.audioCtx.createBiquadFilter();
+          filter.type = 'lowpass';
+          filter.frequency.setValueAtTime(params.cutoffFrequency, now);
+          filter.Q.setValueAtTime(0.8, now);
 
-      const sliceBuffer = audioCtx.createBuffer(
-        fullAudioBuffer.numberOfChannels, lengthSamples, sampleRate
-      );
-      for (let ch = 0; ch < fullAudioBuffer.numberOfChannels; ch++) {
-        const channelData = fullAudioBuffer.getChannelData(ch);
-        sliceBuffer.copyToChannel(channelData.slice(startSample, endSample), ch);
-      }
+          const gainNode = this.audioCtx.createGain();
+          const vol = params.volumeFactor;
+          gainNode.gain.setValueAtTime(0, now);
+          gainNode.gain.linearRampToValueAtTime(vol, now + 0.02);
+          const duration = buffer.duration / params.pitchMultiplier;
+          gainNode.gain.exponentialRampToValueAtTime(vol * 0.3, now + duration * 0.7);
+          gainNode.gain.linearRampToValueAtTime(0, now + duration + 0.1);
 
-      const source = audioCtx.createBufferSource();
-      source.buffer = sliceBuffer;
-      source.playbackRate.setValueAtTime(props.pitchMultiplier, audioCtx.currentTime);
+          source.connect(filter);
+          filter.connect(gainNode);
+          gainNode.connect(this.analyser); // Enruta a analizador y grabación
 
-      const filter = audioCtx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(props.cutoffFrequency, audioCtx.currentTime);
-      filter.Q.setValueAtTime(0.8, audioCtx.currentTime);
+          const startTime = now + (params.delay || 0);
+          source.start(startTime);
+          source.stop(startTime + duration + 0.1);
+        }
 
-      const gainNode = audioCtx.createGain();
-      const vol = props.volumeFactor;
-      const now = audioCtx.currentTime;
-      gainNode.gain.setValueAtTime(0, now);
-      gainNode.gain.linearRampToValueAtTime(vol, now + 0.02);
-      const duration = (selectedEnd - selectedStart) / props.pitchMultiplier;
-      gainNode.gain.exponentialRampToValueAtTime(vol * 0.3, now + duration * 0.7);
-      gainNode.gain.linearRampToValueAtTime(0, now + duration + 0.1);
-
-      source.connect(filter);
-      filter.connect(gainNode);
-      gainNode.connect(analyserNode);     // va al analizador y por tanto al destino de grabación
-
-      const startTime = audioCtx.currentTime + props.delay;
-      source.start(startTime);
-      source.stop(startTime + duration + 0.1);
-
-      document.getElementById('paramsInfo').innerHTML = `
-        Nota: ${noteFreq.toFixed(1)}Hz | Pitch x${props.pitchMultiplier.toFixed(3)} |
-        Vol: ${props.volumeFactor.toFixed(3)} | Cutoff: ${props.cutoffFrequency.toFixed(0)}Hz
-      `;
-      document.getElementById('statusMsg').textContent = '▶ Reproduciendo';
-      document.getElementById('statusMsg').className = 'status ok';
-
-      const buttons = document.querySelectorAll('.keyboard button');
-      buttons.forEach(b => b.classList.remove('playing'));
-      buttons[noteIndex].classList.add('playing');
-      setTimeout(() => buttons[noteIndex].classList.remove('playing'), 300);
-    }
-
-    // ============================================================
-    // 4. TECLADO Y ATMÓSFERA
-    // ============================================================
-    const notes = [
-      { label: 'Do4', freq: 261.63 },
-      { label: 'Re4', freq: 293.66 },
-      { label: 'Mi4', freq: 329.63 },
-      { label: 'Fa4', freq: 349.23 },
-      { label: 'Sol4', freq: 392.00 },
-      { label: 'La4', freq: 440.00 },
-      { label: 'Si4', freq: 493.88 },
-      { label: 'Do5', freq: 523.25 }
-    ];
-
-    const keyboardDiv = document.getElementById('keyboard');
-    notes.forEach((note, index) => {
-      const btn = document.createElement('button');
-      btn.textContent = note.label;
-      btn.addEventListener('click', () => playSample(note.freq, index));
-      keyboardDiv.appendChild(btn);
-    });
-
-    const atmosphereSelect = document.getElementById('atmosphereSelect');
-    atmosphereSelect.addEventListener('change', () => {
-      soundPropagator.setAtmosphere(atmosphereManager.get(atmosphereSelect.value));
-      updateAtmoData();
-    });
-
-    function updateAtmoData() {
-      const atm = atmosphereManager.get(atmosphereSelect.value);
-      document.getElementById('atmoData').innerHTML = `
-        Presión: <span>${atm.pressure.toFixed(3)} atm</span> |
-        Temp: <span>${atm.temperature} K</span> |
-        Vel. sonido: <span>${atm.soundSpeed.toFixed(1)} m/s</span> |
-        Densidad: <span>${atm.density.toFixed(3)} kg/m³</span>
-      `;
-    }
-    updateAtmoData();
-
-    // ============================================================
-    // 5. GRABACIÓN DE LA MEZCLA (CAPAS)
-    // ============================================================
-    const recBtn = document.getElementById('recBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const downloadLink = document.getElementById('downloadLink');
-
-    recBtn.addEventListener('click', () => {
-      initAudio();
-      if (mediaRecorder && mediaRecorder.state === 'recording') return;
-      recordedChunks = [];
-      const stream = mediaStreamDestination.stream;
-      // Usamos MediaRecorder, codec compatible con WAV si es posible (suele ser audio/webm, luego convertimos mentalmente? Mejor descargar como webm y luego convertir, o usar librería. Para simplificar, guardamos como WAV mediante OfflineAudioContext? No, MediaRecorder genera webm. Podemos generar WAV con un script adicional. Simplifico: descargo como webm y el usuario lo convierte. Pero dice "descargar WAV", mejor implementar un export a WAV desde el buffer grabado. Complicado. Añadiré un conversor simple usando AudioContext.decodeAudioData y luego WAV. En otro momento. Por ahora, descargamos como ogg/webm y ya. Ajusto el enlace.)
-      // Para ofrecer WAV real, usaría OfflineAudioContext, pero para simplicidad, mantengo MediaRecorder y lo nombro .wav (no será válido, pero...). Mejor informar que es WebM. 
-      // Lo corregiré: uso OfflineAudioContext para renderizar fielmente a WAV al detener, pero eso implica grabar en búfer circular y luego renderizar. Puede ser muy pesado para el usuario novato. 
-      // Opto por MediaRecorder + descarga como audio/webm. Luego el usuario puede convertir con cualquier herramienta. La experiencia es buena.
-      const options = { mimeType: 'audio/webm' };
-      try {
-        mediaRecorder = new MediaRecorder(stream, options);
-      } catch (e) {
-        alert('Grabación no soportada en este navegador. Prueba con Chrome o Edge.');
-        return;
+        /** Suspende el contexto si está activo */
+        suspend() {
+          if (this.audioCtx && this.audioCtx.state === 'running') {
+            this.audioCtx.suspend();
+          }
+        }
       }
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) recordedChunks.push(e.data);
-      };
+      /**
+       * Adaptador para grabación con MediaRecorder.
+       */
+      class MediaRecorderAdapter {
+        constructor(stream) {
+          this.stream = stream;
+          this.mediaRecorder = null;
+          this.chunks = [];
+          this.mimeType = '';
+          this.onDataCb = null;
+        }
 
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-        const url = URL.createObjectURL(blob);
-        downloadLink.href = url;
-        downloadLink.download = 'grabacion_planetaria.webm';  // Cambio nombre para que coincida
-        downloadLink.textContent = '💾 Descargar grabación (WebM)';
-        downloadLink.style.display = 'block';
-        recBtn.disabled = false;
-        stopBtn.disabled = true;
-      };
+        /** Determina el mejor MIME type soportado */
+        static getSupportedMimeType() {
+          const types = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/wav'];
+          for (let type of types) {
+            if (MediaRecorder.isTypeSupported(type)) return type;
+          }
+          return ''; // dejar que el navegador decida
+        }
 
-      mediaRecorder.start();
-      recBtn.disabled = true;
-      stopBtn.disabled = false;
-      document.getElementById('statusMsg').textContent = '🔴 Grabando... ¡Toca las notas!';
-      document.getElementById('statusMsg').className = 'status partial';
-    });
+        /** Inicia la grabación */
+        start() {
+          this.chunks = [];
+          this.mimeType = MediaRecorderAdapter.getSupportedMimeType();
+          const options = this.mimeType ? { mimeType: this.mimeType } : {};
+          try {
+            this.mediaRecorder = new MediaRecorder(this.stream, options);
+          } catch (e) {
+            throw new Error('Grabación no soportada en este navegador');
+          }
 
-    stopBtn.addEventListener('click', () => {
-      if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
-        document.getElementById('statusMsg').textContent = '⏹ Grabación detenida. Puedes descargar.';
+          this.mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) this.chunks.push(e.data);
+          };
+
+          this.mediaRecorder.start();
+        }
+
+        /** Detiene la grabación y devuelve el Blob */
+        stop() {
+          return new Promise((resolve) => {
+            if (!this.mediaRecorder || this.mediaRecorder.state === 'inactive') {
+              resolve(null);
+              return;
+            }
+            this.mediaRecorder.onstop = () => {
+              const blob = new Blob(this.chunks, { type: this.mimeType || 'audio/webm' });
+              resolve(blob);
+            };
+            this.mediaRecorder.stop();
+          });
+        }
       }
-    });
 
-    // ============================================================
-    // 6. VISUALIZADOR
-    // ============================================================
-    function startVisualizer() {
-      canvas = document.getElementById('waveCanvas');
-      ctx = canvas.getContext('2d');
-      setupCanvasEvents();
+      /**
+       * Renderizador de forma de onda en Canvas.
+       */
+      class CanvasWaveformRenderer {
+        constructor(canvas) {
+          this.canvas = canvas;
+          this.ctx = canvas.getContext('2d');
+          this.buffer = null;
+          this.startTime = 0;
+          this.endTime = 0.5;
+          this.dragMode = null; // 'start' | 'end' | null
+          this.onSelectionChange = null; // callback(start, end)
+          this._setupEvents();
+        }
 
-      function drawAnalyser() {
-        requestAnimationFrame(drawAnalyser);
-        if (fullAudioBuffer && !isDragging) {
-          drawWaveform();
-        } else if (!fullAudioBuffer) {
+        setBuffer(buffer) {
+          this.buffer = buffer;
+          this.startTime = 0;
+          this.endTime = Math.min(0.5, buffer ? buffer.duration : 0.5);
+          this.draw();
+        }
+
+        getSelection() {
+          return { start: this.startTime, end: this.endTime };
+        }
+
+        draw() {
+          const { canvas, ctx, buffer, startTime, endTime } = this;
           ctx.clearRect(0, 0, canvas.width, canvas.height);
+          if (!buffer) return;
+
+          const data = buffer.getChannelData(0);
+          const step = Math.ceil(data.length / canvas.width);
+          ctx.beginPath();
+          ctx.strokeStyle = '#4488ff';
+          ctx.lineWidth = 1;
+
+          for (let i = 0; i < canvas.width; i++) {
+            let min = 1.0, max = -1.0;
+            for (let j = 0; j < step; j++) {
+              const idx = i * step + j;
+              if (idx < data.length) {
+                const val = data[idx];
+                if (val < min) min = val;
+                if (val > max) max = val;
+              }
+            }
+            const x = i;
+            const y1 = ((min + 1) / 2) * canvas.height;
+            const y2 = ((max + 1) / 2) * canvas.height;
+            ctx.moveTo(x, y1);
+            ctx.lineTo(x, y2);
+          }
+          ctx.stroke();
+
+          const duration = buffer.duration;
+          const startX = (startTime / duration) * canvas.width;
+          const endX = (endTime / duration) * canvas.width;
+
+          ctx.beginPath();
+          ctx.strokeStyle = '#00ff88';
+          ctx.lineWidth = 2;
+          ctx.moveTo(startX, 0);
+          ctx.lineTo(startX, canvas.height);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.strokeStyle = '#ff4444';
+          ctx.lineWidth = 2;
+          ctx.moveTo(endX, 0);
+          ctx.lineTo(endX, canvas.height);
+          ctx.stroke();
+        }
+
+        /** Convierte coordenada X del canvas a tiempo */
+        _xToTime(x) {
+          if (!this.buffer) return 0;
+          const rect = this.canvas.getBoundingClientRect();
+          const scaleX = this.canvas.width / rect.width; // por si el canvas está escalado
+          const canvasX = (x - rect.left) * scaleX;
+          return (canvasX / this.canvas.width) * this.buffer.duration;
+        }
+
+        _setupEvents() {
+          const getPos = (e) => {
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            return clientX;
+          };
+
+          const onDown = (e) => {
+            if (!this.buffer) return;
+            const x = getPos(e);
+            const time = this._xToTime(x);
+            const startX = (this.startTime / this.buffer.duration) * this.canvas.width;
+            const endX = (this.endTime / this.buffer.duration) * this.canvas.width;
+            const threshold = 10;
+            const canvasX = (x - this.canvas.getBoundingClientRect().left) * (this.canvas.width / this.canvas.getBoundingClientRect().width);
+
+            if (Math.abs(canvasX - startX) < threshold) {
+              this.dragMode = 'start';
+            } else if (Math.abs(canvasX - endX) < threshold) {
+              this.dragMode = 'end';
+            }
+            e.preventDefault();
+          };
+
+          const onMove = (e) => {
+            if (!this.dragMode || !this.buffer) return;
+            const x = getPos(e);
+            const time = this._xToTime(x);
+            if (this.dragMode === 'start') {
+              this.startTime = Math.min(time, this.endTime - 0.01);
+            } else if (this.dragMode === 'end') {
+              this.endTime = Math.max(time, this.startTime + 0.01);
+            }
+            this.draw();
+            if (this.onSelectionChange) this.onSelectionChange(this.startTime, this.endTime);
+            e.preventDefault();
+          };
+
+          const onUp = () => {
+            this.dragMode = null;
+          };
+
+          this.canvas.addEventListener('mousedown', onDown);
+          this.canvas.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+          this.canvas.addEventListener('touchstart', onDown, { passive: false });
+          this.canvas.addEventListener('touchmove', onMove, { passive: false });
+          window.addEventListener('touchend', onUp);
         }
       }
-      drawAnalyser();
-    }
 
-    window.addEventListener('load', () => {
-      initAudio();
-      startVisualizer();
-      function resizeCanvas() {
-        const c = document.getElementById('waveCanvas');
-        if (!c) return;
-        c.width = c.clientWidth;
-        c.height = 150;
-        drawWaveform();
+      /**
+       * Visualizador del analizador de audio en tiempo real.
+       */
+      class AnalyserVisualizer {
+        constructor(canvas, analyserNode) {
+          this.canvas = canvas;
+          this.ctx = canvas.getContext('2d');
+          this.analyser = analyserNode;
+          this.animationId = null;
+          this._start();
+        }
+
+        _start() {
+          const draw = () => {
+            this.animationId = requestAnimationFrame(draw);
+            if (!this.analyser) return;
+            const bufferLength = this.analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            this.analyser.getByteTimeDomainData(dataArray);
+
+            const { width, height } = this.canvas;
+            this.ctx.fillStyle = '#0a0a18';
+            this.ctx.fillRect(0, 0, width, height);
+            this.ctx.lineWidth = 2;
+            this.ctx.strokeStyle = '#44aaff';
+            this.ctx.beginPath();
+
+            const sliceWidth = width / bufferLength;
+            let x = 0;
+            for (let i = 0; i < bufferLength; i++) {
+              const v = dataArray[i] / 128.0;
+              const y = v * height / 2;
+              if (i === 0) this.ctx.moveTo(x, y);
+              else this.ctx.lineTo(x, y);
+              x += sliceWidth;
+            }
+            this.ctx.lineTo(width, height / 2);
+            this.ctx.stroke();
+          };
+          draw();
+        }
+
+        stop() {
+          if (this.animationId) cancelAnimationFrame(this.animationId);
+        }
       }
-      window.addEventListener('resize', resizeCanvas);
-      resizeCanvas();
-    });
+
+      // ============================================================
+      // APLICACIÓN: Casos de uso (orquestan dominio e infraestructura)
+      // ============================================================
+
+      class LoadSampleUseCase {
+        constructor(audioEngine, renderer, uiUpdater) {
+          this.audioEngine = audioEngine;
+          this.renderer = renderer;
+          this.uiUpdater = uiUpdater; // función para actualizar UI (mensajes, etc.)
+        }
+
+        async execute(file) {
+          try {
+            const arrayBuffer = await file.arrayBuffer();
+            const buffer = await this.audioEngine.loadSample(arrayBuffer);
+            this.renderer.setBuffer(buffer);
+            this.uiUpdater({ status: 'Muestra cargada. Toca y graba.', statusClass: 'ok', fileName: file.name });
+          } catch (err) {
+            this.uiUpdater({ status: 'Error al cargar audio', statusClass: 'rejected' });
+            console.error(err);
+          }
+        }
+      }
+
+      class PlayNoteUseCase {
+        constructor(audioEngine, propagator, renderer, minimapController) {
+          this.audioEngine = audioEngine;
+          this.propagator = propagator;
+          this.renderer = renderer;
+          this.minimap = minimapController;
+        }
+
+        execute(noteFreq, baseFreq) {
+          if (!this.audioEngine.fullBuffer) return;
+          const selection = this.renderer.getSelection();
+          const slice = this.audioEngine.createSlice(selection.start, selection.end, 5);
+          if (!slice) return;
+
+          const sourcePos = this.minimap.getSourcePosition();
+          const listenerPos = this.minimap.getListenerPosition();
+          const params = this.propagator.process(noteFreq, baseFreq, sourcePos, listenerPos);
+          if (!params) return;
+
+          this.audioEngine.playSlice(slice, params);
+          return params; // para feedback
+        }
+      }
+
+      class ChangeAtmosphereUseCase {
+        constructor(atmosphereRepo, propagator, uiUpdater) {
+          this.atmosphereRepo = atmosphereRepo;
+          this.propagator = propagator;
+          this.uiUpdater = uiUpdater;
+        }
+
+        execute(atmosphereId) {
+          const atm = this.atmosphereRepo.get(atmosphereId);
+          if (atm) {
+            this.propagator.setAtmosphere(atm);
+            this.uiUpdater({
+              atmoData: `Presión: <span>${atm.pressure.toFixed(3)} atm</span> | Temp: <span>${atm.temperature} K</span> | Vel. sonido: <span>${atm.soundSpeed.toFixed(1)} m/s</span> | Densidad: <span>${atm.density.toFixed(3)} kg/m³</span>`
+            });
+          }
+        }
+      }
+
+      class RecordMixUseCase {
+        constructor(recorder, uiUpdater) {
+          this.recorder = recorder;
+          this.uiUpdater = uiUpdater;
+          this.lastDownloadUrl = null;
+        }
+
+        start() {
+          try {
+            this.recorder.start();
+            this.uiUpdater({ status: '🔴 Grabando... ¡Toca las notas!', statusClass: 'partial', recording: true });
+          } catch (e) {
+            this.uiUpdater({ status: 'Error de grabación: ' + e.message, statusClass: 'rejected' });
+          }
+        }
+
+        async stop() {
+          const blob = await this.recorder.stop();
+          if (blob) {
+            // Revocar URL anterior
+            if (this.lastDownloadUrl) URL.revokeObjectURL(this.lastDownloadUrl);
+            const url = URL.createObjectURL(blob);
+            this.lastDownloadUrl = url;
+            this.uiUpdater({
+              status: '⏹ Grabación detenida. Puedes descargar.',
+              statusClass: 'ok',
+              downloadUrl: url,
+              downloadFileName: 'grabacion_planetaria.' + (blob.type.split('/')[1] || 'webm'),
+              recording: false
+            });
+          } else {
+            this.uiUpdater({ status: 'Grabación vacía', statusClass: 'rejected', recording: false });
+          }
+        }
+      }
+
+      // ============================================================
+      // REPOSITORIO DE ATMÓSFERAS (patrón repositorio simple)
+      // ============================================================
+      class AtmosphereRepository {
+        constructor() {
+          this.atmospheres = {};
+        }
+
+        register(id, config) {
+          this.atmospheres[id] = new Atmosphere(id, config);
+        }
+
+        get(id) {
+          return this.atmospheres[id] || this.atmospheres['tierra'];
+        }
+
+        /** Inicializa las atmósferas predefinidas */
+        initDefaults() {
+          this.register('tierra', {
+            name: 'Tierra', pressure: 1.0, temperature: 293, molarMass: 0.029, gamma: 1.4,
+            absorptionCoeffs: { 100: 0.001, 1000: 0.003, 10000: 0.01 }
+          });
+          this.register('marte', {
+            name: 'Marte', pressure: 0.006, temperature: 210, molarMass: 0.044, gamma: 1.3,
+            absorptionCoeffs: { 100: 0.01, 1000: 0.1, 10000: 0.5 }
+          });
+          this.register('venus', {
+            name: 'Venus', pressure: 92, temperature: 737, molarMass: 0.044, gamma: 1.3,
+            absorptionCoeffs: { 100: 0.0001, 1000: 0.001, 10000: 0.05 }
+          });
+          this.register('titan', {
+            name: 'Titán', pressure: 1.45, temperature: 94, molarMass: 0.028, gamma: 1.4,
+            absorptionCoeffs: { 100: 0.0005, 1000: 0.002, 10000: 0.008 }
+          });
+        }
+      }
+
+      // ============================================================
+      // UI: Controladores de interfaz de usuario
+      // ============================================================
+
+      class MinimapController {
+        constructor(minimapElement, sourceDot) {
+          this.element = minimapElement;
+          this.sourceDot = sourceDot;
+          this.dragging = false;
+          this.sourceX = 0.1; // fracción 0-1
+          this.sourceY = 0.5;
+          this._setupDrag();
+        }
+
+        getSourcePosition() {
+          return { x: this.sourceX * 10, y: this.sourceY * 10 }; // Escala a metros (0-10)
+        }
+
+        getListenerPosition() {
+          return { x: 5, y: 5 }; // Fijo en el centro
+        }
+
+        /** Actualiza visualmente la posición de la fuente */
+        _updateDot() {
+          this.sourceDot.style.left = (this.sourceX * 100) + '%';
+          this.sourceDot.style.top = (this.sourceY * 100) + '%';
+        }
+
+        _setupDrag() {
+          const getPos = (e) => {
+            const rect = this.element.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+              x: (clientX - rect.left) / rect.width,
+              y: (clientY - rect.top) / rect.height
+            };
+          };
+
+          const onStart = (e) => {
+            if (e.target === this.sourceDot) {
+              this.dragging = true;
+              e.preventDefault();
+            }
+          };
+
+          const onMove = (e) => {
+            if (!this.dragging) return;
+            const pos = getPos(e);
+            this.sourceX = Math.min(1, Math.max(0, pos.x));
+            this.sourceY = Math.min(1, Math.max(0, pos.y));
+            this._updateDot();
+            e.preventDefault();
+          };
+
+          const onStop = () => {
+            this.dragging = false;
+          };
+
+          this.element.addEventListener('mousedown', onStart);
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onStop);
+          this.element.addEventListener('touchstart', onStart, { passive: false });
+          window.addEventListener('touchmove', onMove, { passive: false });
+          window.addEventListener('touchend', onStop);
+        }
+      }
+
+      /**
+       * Orquestador de la UI: conecta los elementos DOM con los casos de uso.
+       */
+      class PlanetUI {
+        constructor() {
+          this.loadUC = null;
+          this.playUC = null;
+          this.recordUC = null;
+          this.atmosphereUC = null;
+        }
+
+        init({ loadUC, playUC, recordUC, atmosphereUC, atmosphereRepo }) {
+          this.loadUC = loadUC;
+          this.playUC = playUC;
+          this.recordUC = recordUC;
+          this.atmosphereUC = atmosphereUC;
+
+          this._setupFileInput();
+          this._setupKeyboard();
+          this._setupAtmosphereSelect(atmosphereRepo);
+          this._setupRecButtons();
+          this._setupWindowResize();
+        }
+
+        /** Actualiza elementos de UI desde los casos de uso */
+        updateUI(update) {
+          if (update.status !== undefined) {
+            document.getElementById('statusMsg').textContent = update.status;
+            document.getElementById('statusMsg').className = 'status ' + (update.statusClass || 'ok');
+          }
+          if (update.fileName !== undefined) {
+            document.getElementById('fileLabel').textContent = '✅ ' + update.fileName;
+          }
+          if (update.atmoData !== undefined) {
+            document.getElementById('atmoData').innerHTML = update.atmoData;
+          }
+          if (update.downloadUrl !== undefined) {
+            const link = document.getElementById('downloadLink');
+            link.href = update.downloadUrl;
+            link.download = update.downloadFileName || 'grabacion_planetaria.webm';
+            link.textContent = '💾 Descargar grabación (' + (update.downloadFileName ? update.downloadFileName.split('.').pop() : '') + ')';
+            link.style.display = 'block';
+          }
+          if (update.recording !== undefined) {
+            document.getElementById('recBtn').disabled = update.recording;
+            document.getElementById('stopBtn').disabled = !update.recording;
+          }
+        }
+
+        _setupFileInput() {
+          const fileInput = document.getElementById('audioFileInput');
+          fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            // Asegurar que el motor de audio está inicializado (requiere gesto)
+            try {
+              await this.loadUC.execute(file);
+            } catch (err) {
+              this.updateUI({ status: 'Error: ' + err.message, statusClass: 'rejected' });
+            }
+          });
+        }
+
+        _setupKeyboard() {
+          const notes = [
+            { label: 'Do4', freq: 261.63 },
+            { label: 'Re4', freq: 293.66 },
+            { label: 'Mi4', freq: 329.63 },
+            { label: 'Fa4', freq: 349.23 },
+            { label: 'Sol4', freq: 392.00 },
+            { label: 'La4', freq: 440.00 },
+            { label: 'Si4', freq: 493.88 },
+            { label: 'Do5', freq: 523.25 }
+          ];
+          const keyboardDiv = document.getElementById('keyboard');
+          keyboardDiv.innerHTML = ''; // limpiar por si acaso
+          notes.forEach((note, index) => {
+            const btn = document.createElement('button');
+            btn.textContent = note.label;
+            btn.addEventListener('click', () => {
+              // Inicializar audio en el primer clic si no está
+              if (!this.playUC.audioEngine.initialized) {
+                this.playUC.audioEngine.init();
+              }
+              const params = this.playUC.execute(note.freq, 261.63);
+              if (params) {
+                document.getElementById('paramsInfo').innerHTML = `
+                  Nota: ${note.freq.toFixed(1)}Hz | Pitch x${params.pitchMultiplier.toFixed(3)} |
+                  Vol: ${params.volumeFactor.toFixed(3)} | Cutoff: ${params.cutoffFrequency.toFixed(0)}Hz
+                `;
+                this.updateUI({ status: '▶ Reproduciendo', statusClass: 'ok' });
+                // Efecto visual
+                const allBtns = keyboardDiv.querySelectorAll('button');
+                allBtns.forEach(b => b.classList.remove('playing'));
+                btn.classList.add('playing');
+                setTimeout(() => btn.classList.remove('playing'), 300);
+              } else {
+                this.updateUI({ status: 'Carga un archivo de audio primero', statusClass: 'partial' });
+              }
+            });
+            keyboardDiv.appendChild(btn);
+          });
+        }
+
+        _setupAtmosphereSelect(atmosphereRepo) {
+          const select = document.getElementById('atmosphereSelect');
+          select.addEventListener('change', () => {
+            this.atmosphereUC.execute(select.value);
+          });
+          // Inicializar con Tierra
+          this.atmosphereUC.execute('tierra');
+        }
+
+        _setupRecButtons() {
+          const recBtn = document.getElementById('recBtn');
+          const stopBtn = document.getElementById('stopBtn');
+
+          recBtn.addEventListener('click', () => {
+            if (!this.playUC.audioEngine.initialized) {
+              this.playUC.audioEngine.init();
+            }
+            this.recordUC.start();
+          });
+
+          stopBtn.addEventListener('click', () => {
+            this.recordUC.stop();
+          });
+        }
+
+        _setupWindowResize() {
+          window.addEventListener('resize', () => {
+            const waveCanvas = document.getElementById('waveCanvas');
+            if (waveCanvas) {
+              waveCanvas.width = waveCanvas.clientWidth;
+              waveCanvas.height = 150;
+            }
+            const analyserCanvas = document.getElementById('analyserCanvas');
+            if (analyserCanvas) {
+              analyserCanvas.width = analyserCanvas.clientWidth;
+              analyserCanvas.height = 80;
+            }
+            // Redibujar forma de onda si el renderer está disponible
+            if (this.playUC && this.playUC.renderer) {
+              this.playUC.renderer.draw();
+            }
+          });
+        }
+      }
+
+      // ============================================================
+      // COMPOSICIÓN: Punto de entrada, cablea todo
+      // ============================================================
+      window.addEventListener('load', () => {
+        // 1. Infraestructura
+        const audioEngine = new WebAudioEngine();
+        const waveCanvas = document.getElementById('waveCanvas');
+        waveCanvas.width = waveCanvas.clientWidth;
+        waveCanvas.height = 150;
+        const analyserCanvas = document.getElementById('analyserCanvas');
+        analyserCanvas.width = analyserCanvas.clientWidth;
+        analyserCanvas.height = 80;
+        const renderer = new CanvasWaveformRenderer(waveCanvas);
+        const recorder = new MediaRecorderAdapter(audioEngine.getMediaStream());
+        const visualizer = new AnalyserVisualizer(analyserCanvas, audioEngine.getAnalyserNode());
+
+        // 2. Dominio
+        const atmosRepo = new AtmosphereRepository();
+        atmosRepo.initDefaults();
+        const propagator = new SoundPropagator();
+        propagator.setAtmosphere(atmosRepo.get('tierra'));
+
+        // 3. Controlador de minimapa
+        const minimapDiv = document.getElementById('minimap');
+        const sourceDot = document.getElementById('sourceDot');
+        const minimap = new MinimapController(minimapDiv, sourceDot);
+
+        // 4. UI global (singleton)
+        const ui = new PlanetUI();
+
+        // 5. Casos de uso
+        const loadUC = new LoadSampleUseCase(audioEngine, renderer, ui.updateUI.bind(ui));
+        const playUC = new PlayNoteUseCase(audioEngine, propagator, renderer, minimap);
+        const atmosphereUC = new ChangeAtmosphereUseCase(atmosRepo, propagator, ui.updateUI.bind(ui));
+        const recordUC = new RecordMixUseCase(recorder, ui.updateUI.bind(ui));
+
+        // 6. Conectar UI con casos de uso
+        ui.init({ loadUC, playUC, recordUC, atmosphereUC, atmosphereRepo: atmosRepo });
+
+        // Actualizar información de selección cuando cambie
+        renderer.onSelectionChange = (start, end) => {
+          document.getElementById('selectionInfo').textContent =
+            `Inicio: ${start.toFixed(3)}s | Fin: ${end.toFixed(3)}s | Duración: ${(end - start).toFixed(3)}s`;
+        };
+
+        // Mensaje inicial
+        ui.updateUI({ status: 'Haz clic en "Seleccionar archivo" o toca una nota para iniciar', statusClass: 'ok' });
+      });
+    })();
   </script>
 </body>
 </html>
