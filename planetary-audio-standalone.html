@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, maximum-scale=2.0">
-  <title>Audio Planetario – Modular Hexagonal</title>
+  <title>Audio Planetario – Modular Hexagonal con Adaptador Enactivo</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -43,7 +43,7 @@
       backdrop-filter: blur(10px);
     }
     .panel h2 { margin-bottom: 12px; font-size: 1.2rem; color: #aaccff; }
-    select, button, input {
+    select, button, input[type="range"] {
       width: 100%; padding: 10px 14px; margin-bottom: 10px;
       border-radius: 8px; border: 1px solid rgba(150, 150, 220, 0.4);
       background: rgba(30, 30, 60, 0.9); color: #ffffff; font-size: 1rem;
@@ -111,6 +111,13 @@
       display: none; color: #ffcc00; text-align: center; margin-top: 8px;
       word-break: break-all; font-size: 0.9rem;
     }
+    .gain-control {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 10px; margin-top: 5px;
+    }
+    .gain-control label { flex: 1; font-size: 0.9rem; color: #aaccff; }
+    .gain-control input[type="range"] { flex: 2; margin: 0; }
+    .gain-control span { flex: 0 0 60px; text-align: right; color: #ffcc00; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -130,6 +137,13 @@
         <option value="titan">🪐 Titán</option>
       </select>
       <div class="atmo-data" id="atmoData"></div>
+
+      <!-- Control de ganancia de emergencia (Adaptador Enactivo) -->
+      <div class="gain-control">
+        <label for="gainBoost">🔊 Ganancia extra</label>
+        <input type="range" id="gainBoost" min="1" max="1000" value="1" step="1">
+        <span id="gainValue">×1</span>
+      </div>
 
       <h2 style="margin-top:15px;">🎹 Sampler (pulsa notas para capas)</h2>
       <div class="keyboard" id="keyboard"></div>
@@ -170,9 +184,9 @@
   </div>
 
   <script>
-    (function() {
+    (() => {
       // ============================================================
-      // DOMINIO: Entidades y lógica pura (sin dependencias externas)
+      // 1. DOMINIO: Entidades y lógica pura (sin dependencias externas)
       // ============================================================
 
       /**
@@ -202,7 +216,7 @@
 
         /** Velocidad del sonido en m/s */
         get soundSpeed() {
-          const R = 8.314; // Constante universal de gases ideales
+          const R = 8.314;
           return Math.sqrt((this.gamma * R * this.temperature) / this.molarMass);
         }
 
@@ -251,7 +265,7 @@
         }
 
         /**
-         * Procesa una nota y devuelve parámetros de audio.
+         * Procesa una nota y devuelve parámetros de audio crudos.
          * @param {number} noteFreq - Frecuencia de la nota tocada
          * @param {number} baseFreq - Frecuencia base de la muestra (Do4 ~261.63)
          * @param {{x:number, y:number}} sourcePos - Posición de la fuente
@@ -268,9 +282,9 @@
           const density = this.atmosphere.density;
 
           const pitchRatio = noteFreq / baseFreq;
-          // Atenuación por distancia y densidad (limitada)
+          // Atenuación por distancia y densidad (normalizado a Tierra)
           const distanceAttenuation = 1 / (1 + dist);
-          const densityFactor = density / 1.225; // normalizado a Tierra
+          const densityFactor = density / 1.225; // 1.225 kg/m³ densidad Tierra
           const volumeFactor = distanceAttenuation * Math.min(densityFactor, 2.0) * 0.8;
 
           const absorption = this.atmosphere.getAbsorption(noteFreq);
@@ -287,17 +301,57 @@
       }
 
       // ============================================================
-      // PUERTOS (interfaces por convención)
-      // No se implementan, solo se documentan como contratos esperados.
+      // 2. PUERTOS (interfaces implícitas, documentadas aquí)
       // ============================================================
-      // AudioEnginePort: playSlice(buffer, params) : void
-      // RecorderPort: start() : void, stop() : void, onDataAvailable(cb) : void, getBlob() : Blob
-      // RendererPort: drawWaveform(buffer, start, end) : void, setBuffer(buffer) : void
-      // MinimapPort: setSourcePosition(x,y), getSourcePosition() : {x,y}, onPositionChange(cb)
+      // AudioEnginePort:
+      //   init() : void
+      //   loadSample(arrayBuffer) : Promise<AudioBuffer>
+      //   createSlice(startSec, endSec, fadeMs) : AudioBuffer
+      //   playSlice(buffer, params) : void
+      //   getAnalyserNode() : AnalyserNode
+      //   getMediaStream() : MediaStream
+      //
+      // RecorderPort:
+      //   start() : void
+      //   stop() : Promise<Blob>
+      //
+      // RendererPort (forma de onda):
+      //   setBuffer(buffer) : void
+      //   getSelection() : {start:number, end:number}
+      //   onSelectionChange(cb) : void
+      //
+      // MinimapPort:
+      //   getSourcePosition() : {x:number, y:number}
+      //   getListenerPosition() : {x:number, y:number}
+      //
+      // EventBusPort:
+      //   emit(eventName, payload) : void
+      //   on(eventName, callback) : void
 
       // ============================================================
-      // INFRAESTRUCTURA: Adaptadores concretos (Web Audio, Canvas, etc.)
+      // 3. INFRAESTRUCTURA: Adaptadores concretos
       // ============================================================
+
+      /**
+       * Implementación del bus de eventos (mediador).
+       */
+      class EventBus {
+        constructor() {
+          this.listeners = new Map();
+        }
+        on(event, callback) {
+          if (!this.listeners.has(event)) {
+            this.listeners.set(event, new Set());
+          }
+          this.listeners.get(event).add(callback);
+        }
+        emit(event, payload) {
+          const cbs = this.listeners.get(event);
+          if (cbs) {
+            cbs.forEach(cb => cb(payload));
+          }
+        }
+      }
 
       /**
        * Motor de audio basado en Web Audio API.
@@ -337,12 +391,10 @@
           return this.fullBuffer;
         }
 
-        /** Retorna el nodo analizador para visualización */
         getAnalyserNode() {
           return this.analyser;
         }
 
-        /** Retorna el stream de destino para grabación */
         getMediaStream() {
           return this.mediaStreamDest.stream;
         }
@@ -369,28 +421,25 @@
           for (let ch = 0; ch < channels; ch++) {
             const origData = this.fullBuffer.getChannelData(ch);
             const sliceData = slice.getChannelData(ch);
-            // Copiar datos
             for (let i = 0; i < lengthSamples; i++) {
               sliceData[i] = origData[startSample + i];
             }
-            // Aplicar fade in
+            // fade in
             for (let i = 0; i < fadeSamples; i++) {
-              const gain = i / fadeSamples;
-              sliceData[i] *= gain;
+              sliceData[i] *= i / fadeSamples;
             }
-            // Aplicar fade out
+            // fade out
             for (let i = lengthSamples - fadeSamples; i < lengthSamples; i++) {
-              const gain = (lengthSamples - 1 - i) / fadeSamples;
-              sliceData[i] *= gain;
+              sliceData[i] *= (lengthSamples - 1 - i) / fadeSamples;
             }
           }
           return slice;
         }
 
         /**
-         * Reproduce un buffer con efectos (pitch, volumen, filtro, retardo).
-         * @param {AudioBuffer} buffer - El buffer a reproducir
-         * @param {Object} params - Parámetros de reproducción
+         * Reproduce un buffer con efectos.
+         * @param {AudioBuffer} buffer
+         * @param {Object} params - pitchMultiplier, volumeFactor, cutoffFrequency, delay
          */
         playSlice(buffer, params) {
           if (!buffer || !this.initialized) return;
@@ -409,7 +458,7 @@
           gainNode.gain.setValueAtTime(0, now);
           gainNode.gain.linearRampToValueAtTime(vol, now + 0.02);
           const duration = buffer.duration / params.pitchMultiplier;
-          gainNode.gain.exponentialRampToValueAtTime(vol * 0.3, now + duration * 0.7);
+          gainNode.gain.exponentialRampToValueAtTime(Math.max(vol * 0.3, 0.00001), now + duration * 0.7);
           gainNode.gain.linearRampToValueAtTime(0, now + duration + 0.1);
 
           source.connect(filter);
@@ -421,7 +470,6 @@
           source.stop(startTime + duration + 0.1);
         }
 
-        /** Suspende el contexto si está activo */
         suspend() {
           if (this.audioCtx && this.audioCtx.state === 'running') {
             this.audioCtx.suspend();
@@ -438,19 +486,16 @@
           this.mediaRecorder = null;
           this.chunks = [];
           this.mimeType = '';
-          this.onDataCb = null;
         }
 
-        /** Determina el mejor MIME type soportado */
         static getSupportedMimeType() {
           const types = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/wav'];
           for (let type of types) {
             if (MediaRecorder.isTypeSupported(type)) return type;
           }
-          return ''; // dejar que el navegador decida
+          return '';
         }
 
-        /** Inicia la grabación */
         start() {
           this.chunks = [];
           this.mimeType = MediaRecorderAdapter.getSupportedMimeType();
@@ -460,15 +505,12 @@
           } catch (e) {
             throw new Error('Grabación no soportada en este navegador');
           }
-
           this.mediaRecorder.ondataavailable = (e) => {
             if (e.data.size > 0) this.chunks.push(e.data);
           };
-
           this.mediaRecorder.start();
         }
 
-        /** Detiene la grabación y devuelve el Blob */
         stop() {
           return new Promise((resolve) => {
             if (!this.mediaRecorder || this.mediaRecorder.state === 'inactive') {
@@ -495,7 +537,7 @@
           this.startTime = 0;
           this.endTime = 0.5;
           this.dragMode = null; // 'start' | 'end' | null
-          this.onSelectionChange = null; // callback(start, end)
+          this.onSelectionChange = null;
           this._setupEvents();
         }
 
@@ -558,29 +600,28 @@
           ctx.stroke();
         }
 
-        /** Convierte coordenada X del canvas a tiempo */
-        _xToTime(x) {
+        _xToTime(canvasX) {
           if (!this.buffer) return 0;
           const rect = this.canvas.getBoundingClientRect();
-          const scaleX = this.canvas.width / rect.width; // por si el canvas está escalado
-          const canvasX = (x - rect.left) * scaleX;
-          return (canvasX / this.canvas.width) * this.buffer.duration;
+          const scaleX = this.canvas.width / rect.width;
+          const adjustedX = canvasX * scaleX;
+          return (adjustedX / this.canvas.width) * this.buffer.duration;
         }
 
         _setupEvents() {
           const getPos = (e) => {
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            return clientX;
+            return e.touches ? e.touches[0].clientX : e.clientX;
           };
 
           const onDown = (e) => {
             if (!this.buffer) return;
-            const x = getPos(e);
-            const time = this._xToTime(x);
+            const clientX = getPos(e);
+            const rect = this.canvas.getBoundingClientRect();
+            const canvasX = clientX - rect.left;
+            const time = this._xToTime(canvasX);
             const startX = (this.startTime / this.buffer.duration) * this.canvas.width;
             const endX = (this.endTime / this.buffer.duration) * this.canvas.width;
             const threshold = 10;
-            const canvasX = (x - this.canvas.getBoundingClientRect().left) * (this.canvas.width / this.canvas.getBoundingClientRect().width);
 
             if (Math.abs(canvasX - startX) < threshold) {
               this.dragMode = 'start';
@@ -592,8 +633,11 @@
 
           const onMove = (e) => {
             if (!this.dragMode || !this.buffer) return;
-            const x = getPos(e);
-            const time = this._xToTime(x);
+            const clientX = getPos(e);
+            const rect = this.canvas.getBoundingClientRect();
+            const canvasX = clientX - rect.left;
+            const time = this._xToTime(canvasX);
+
             if (this.dragMode === 'start') {
               this.startTime = Math.min(time, this.endTime - 0.01);
             } else if (this.dragMode === 'end') {
@@ -664,149 +708,9 @@
         }
       }
 
-      // ============================================================
-      // APLICACIÓN: Casos de uso (orquestan dominio e infraestructura)
-      // ============================================================
-
-      class LoadSampleUseCase {
-        constructor(audioEngine, renderer, uiUpdater) {
-          this.audioEngine = audioEngine;
-          this.renderer = renderer;
-          this.uiUpdater = uiUpdater; // función para actualizar UI (mensajes, etc.)
-        }
-
-        async execute(file) {
-          try {
-            const arrayBuffer = await file.arrayBuffer();
-            const buffer = await this.audioEngine.loadSample(arrayBuffer);
-            this.renderer.setBuffer(buffer);
-            this.uiUpdater({ status: 'Muestra cargada. Toca y graba.', statusClass: 'ok', fileName: file.name });
-          } catch (err) {
-            this.uiUpdater({ status: 'Error al cargar audio', statusClass: 'rejected' });
-            console.error(err);
-          }
-        }
-      }
-
-      class PlayNoteUseCase {
-        constructor(audioEngine, propagator, renderer, minimapController) {
-          this.audioEngine = audioEngine;
-          this.propagator = propagator;
-          this.renderer = renderer;
-          this.minimap = minimapController;
-        }
-
-        execute(noteFreq, baseFreq) {
-          if (!this.audioEngine.fullBuffer) return;
-          const selection = this.renderer.getSelection();
-          const slice = this.audioEngine.createSlice(selection.start, selection.end, 5);
-          if (!slice) return;
-
-          const sourcePos = this.minimap.getSourcePosition();
-          const listenerPos = this.minimap.getListenerPosition();
-          const params = this.propagator.process(noteFreq, baseFreq, sourcePos, listenerPos);
-          if (!params) return;
-
-          this.audioEngine.playSlice(slice, params);
-          return params; // para feedback
-        }
-      }
-
-      class ChangeAtmosphereUseCase {
-        constructor(atmosphereRepo, propagator, uiUpdater) {
-          this.atmosphereRepo = atmosphereRepo;
-          this.propagator = propagator;
-          this.uiUpdater = uiUpdater;
-        }
-
-        execute(atmosphereId) {
-          const atm = this.atmosphereRepo.get(atmosphereId);
-          if (atm) {
-            this.propagator.setAtmosphere(atm);
-            this.uiUpdater({
-              atmoData: `Presión: <span>${atm.pressure.toFixed(3)} atm</span> | Temp: <span>${atm.temperature} K</span> | Vel. sonido: <span>${atm.soundSpeed.toFixed(1)} m/s</span> | Densidad: <span>${atm.density.toFixed(3)} kg/m³</span>`
-            });
-          }
-        }
-      }
-
-      class RecordMixUseCase {
-        constructor(recorder, uiUpdater) {
-          this.recorder = recorder;
-          this.uiUpdater = uiUpdater;
-          this.lastDownloadUrl = null;
-        }
-
-        start() {
-          try {
-            this.recorder.start();
-            this.uiUpdater({ status: '🔴 Grabando... ¡Toca las notas!', statusClass: 'partial', recording: true });
-          } catch (e) {
-            this.uiUpdater({ status: 'Error de grabación: ' + e.message, statusClass: 'rejected' });
-          }
-        }
-
-        async stop() {
-          const blob = await this.recorder.stop();
-          if (blob) {
-            // Revocar URL anterior
-            if (this.lastDownloadUrl) URL.revokeObjectURL(this.lastDownloadUrl);
-            const url = URL.createObjectURL(blob);
-            this.lastDownloadUrl = url;
-            this.uiUpdater({
-              status: '⏹ Grabación detenida. Puedes descargar.',
-              statusClass: 'ok',
-              downloadUrl: url,
-              downloadFileName: 'grabacion_planetaria.' + (blob.type.split('/')[1] || 'webm'),
-              recording: false
-            });
-          } else {
-            this.uiUpdater({ status: 'Grabación vacía', statusClass: 'rejected', recording: false });
-          }
-        }
-      }
-
-      // ============================================================
-      // REPOSITORIO DE ATMÓSFERAS (patrón repositorio simple)
-      // ============================================================
-      class AtmosphereRepository {
-        constructor() {
-          this.atmospheres = {};
-        }
-
-        register(id, config) {
-          this.atmospheres[id] = new Atmosphere(id, config);
-        }
-
-        get(id) {
-          return this.atmospheres[id] || this.atmospheres['tierra'];
-        }
-
-        /** Inicializa las atmósferas predefinidas */
-        initDefaults() {
-          this.register('tierra', {
-            name: 'Tierra', pressure: 1.0, temperature: 293, molarMass: 0.029, gamma: 1.4,
-            absorptionCoeffs: { 100: 0.001, 1000: 0.003, 10000: 0.01 }
-          });
-          this.register('marte', {
-            name: 'Marte', pressure: 0.006, temperature: 210, molarMass: 0.044, gamma: 1.3,
-            absorptionCoeffs: { 100: 0.01, 1000: 0.1, 10000: 0.5 }
-          });
-          this.register('venus', {
-            name: 'Venus', pressure: 92, temperature: 737, molarMass: 0.044, gamma: 1.3,
-            absorptionCoeffs: { 100: 0.0001, 1000: 0.001, 10000: 0.05 }
-          });
-          this.register('titan', {
-            name: 'Titán', pressure: 1.45, temperature: 94, molarMass: 0.028, gamma: 1.4,
-            absorptionCoeffs: { 100: 0.0005, 1000: 0.002, 10000: 0.008 }
-          });
-        }
-      }
-
-      // ============================================================
-      // UI: Controladores de interfaz de usuario
-      // ============================================================
-
+      /**
+       * Controlador del minimapa.
+       */
       class MinimapController {
         constructor(minimapElement, sourceDot) {
           this.element = minimapElement;
@@ -825,7 +729,6 @@
           return { x: 5, y: 5 }; // Fijo en el centro
         }
 
-        /** Actualiza visualmente la posición de la fuente */
         _updateDot() {
           this.sourceDot.style.left = (this.sourceX * 100) + '%';
           this.sourceDot.style.top = (this.sourceY * 100) + '%';
@@ -871,65 +774,328 @@
         }
       }
 
+      // ============================================================
+      // 4. APLICACIÓN: Casos de uso (orquestan dominio e infraestructura)
+      // ============================================================
+
+      class LoadSampleUseCase {
+        constructor(audioEngine, renderer, eventBus) {
+          this.audioEngine = audioEngine;
+          this.renderer = renderer;
+          this.eventBus = eventBus;
+        }
+
+        async execute(file) {
+          try {
+            const arrayBuffer = await file.arrayBuffer();
+            const buffer = await this.audioEngine.loadSample(arrayBuffer);
+            this.renderer.setBuffer(buffer);
+            this.eventBus.emit('status', { text: 'Muestra cargada. Toca y graba.', type: 'ok' });
+            this.eventBus.emit('fileLoaded', { name: file.name });
+          } catch (err) {
+            this.eventBus.emit('status', { text: 'Error al cargar audio', type: 'rejected' });
+            console.error(err);
+          }
+        }
+      }
+
       /**
-       * Orquestador de la UI: conecta los elementos DOM con los casos de uso.
+       * Caso de uso para tocar una nota con Adaptador Enactivo.
+       * Evalúa los parámetros y aplica ganancia de emergencia si es necesario.
        */
-      class PlanetUI {
+      class PlayNoteUseCase {
+        constructor(audioEngine, propagator, renderer, minimap, eventBus) {
+          this.audioEngine = audioEngine;
+          this.propagator = propagator;
+          this.renderer = renderer;
+          this.minimap = minimap;
+          this.eventBus = eventBus;
+          this.emergencyGain = 1; // ganancia extra configurable por el usuario
+        }
+
+        /**
+         * @param {number} noteFreq
+         * @param {number} baseFreq
+         * @returns {Object} { played: boolean, params?, warning? }
+         */
+        execute(noteFreq, baseFreq) {
+          if (!this.audioEngine.fullBuffer) {
+            this.eventBus.emit('status', { text: 'Carga un archivo de audio primero', type: 'partial' });
+            return { played: false };
+          }
+
+          const selection = this.renderer.getSelection();
+          const slice = this.audioEngine.createSlice(selection.start, selection.end, 5);
+          if (!slice) {
+            this.eventBus.emit('status', { text: 'Selección de audio inválida', type: 'rejected' });
+            return { played: false };
+          }
+
+          const sourcePos = this.minimap.getSourcePosition();
+          const listenerPos = this.minimap.getListenerPosition();
+          const params = this.propagator.process(noteFreq, baseFreq, sourcePos, listenerPos);
+          if (!params) {
+            this.eventBus.emit('status', { text: 'Error en la propagación', type: 'rejected' });
+            return { played: false };
+          }
+
+          // --- Adaptador Enactivo: evaluación y adaptación de parámetros ---
+          const adaptedParams = { ...params };
+          let warning = null;
+
+          // Umbral por debajo del cual consideramos el sonido inaudible
+          const AUDIBILITY_THRESHOLD = 0.01;
+          if (adaptedParams.volumeFactor < AUDIBILITY_THRESHOLD) {
+            // Aplicar ganancia de emergencia
+            const boost = Math.min(this.emergencyGain * 100, 150); // limitar a 150x para no saturar
+            adaptedParams.volumeFactor *= boost;
+            // Limitar a un máximo de 1.5 para no distorsionar demasiado
+            adaptedParams.volumeFactor = Math.min(adaptedParams.volumeFactor, 1.5);
+            warning = `Volumen extremadamente bajo. Compensación ×${boost.toFixed(1)} aplicada.`;
+            adaptedParams.degraded = true;
+          } else if (adaptedParams.volumeFactor < 0.05) {
+            // Aviso sin compensación fuerte
+            warning = `Volumen bajo (${adaptedParams.volumeFactor.toFixed(4)}). Ajusta la ganancia manual si es necesario.`;
+          }
+
+          // Reproducir
+          this.audioEngine.playSlice(slice, adaptedParams);
+
+          // Emitir información a la UI
+          this.eventBus.emit('notePlayed', {
+            freq: noteFreq,
+            params: adaptedParams,
+            warning: warning
+          });
+
+          return { played: true, params: adaptedParams, warning };
+        }
+
+        /** Actualiza la ganancia de emergencia desde la UI */
+        setEmergencyGain(gain) {
+          this.emergencyGain = gain;
+        }
+      }
+
+      class ChangeAtmosphereUseCase {
+        constructor(atmosphereRepo, propagator, eventBus) {
+          this.atmosphereRepo = atmosphereRepo;
+          this.propagator = propagator;
+          this.eventBus = eventBus;
+        }
+
+        execute(atmosphereId) {
+          const atm = this.atmosphereRepo.get(atmosphereId);
+          if (atm) {
+            this.propagator.setAtmosphere(atm);
+            this.eventBus.emit('atmosphereChanged', {
+              pressure: atm.pressure.toFixed(3),
+              temperature: atm.temperature,
+              soundSpeed: atm.soundSpeed.toFixed(1),
+              density: atm.density.toFixed(3)
+            });
+          }
+        }
+      }
+
+      class RecordMixUseCase {
+        constructor(recorder, eventBus) {
+          this.recorder = recorder;
+          this.eventBus = eventBus;
+          this.lastDownloadUrl = null;
+        }
+
+        start() {
+          try {
+            this.recorder.start();
+            this.eventBus.emit('recordingState', { active: true });
+            this.eventBus.emit('status', { text: '🔴 Grabando... ¡Toca las notas!', type: 'partial' });
+          } catch (e) {
+            this.eventBus.emit('status', { text: 'Error de grabación: ' + e.message, type: 'rejected' });
+          }
+        }
+
+        async stop() {
+          const blob = await this.recorder.stop();
+          if (blob) {
+            if (this.lastDownloadUrl) URL.revokeObjectURL(this.lastDownloadUrl);
+            const url = URL.createObjectURL(blob);
+            this.lastDownloadUrl = url;
+            const ext = blob.type.split('/')[1] || 'webm';
+            this.eventBus.emit('recordingState', { active: false });
+            this.eventBus.emit('downloadReady', {
+              url,
+              filename: `grabacion_planetaria.${ext}`,
+              ext
+            });
+            this.eventBus.emit('status', { text: '⏹ Grabación detenida. Puedes descargar.', type: 'ok' });
+          } else {
+            this.eventBus.emit('recordingState', { active: false });
+            this.eventBus.emit('status', { text: 'Grabación vacía', type: 'rejected' });
+          }
+        }
+      }
+
+      // ============================================================
+      // 5. REPOSITORIO DE ATMÓSFERAS
+      // ============================================================
+      class AtmosphereRepository {
         constructor() {
-          this.loadUC = null;
-          this.playUC = null;
-          this.recordUC = null;
-          this.atmosphereUC = null;
+          this.atmospheres = {};
         }
 
-        init({ loadUC, playUC, recordUC, atmosphereUC, atmosphereRepo }) {
-          this.loadUC = loadUC;
+        register(id, config) {
+          this.atmospheres[id] = new Atmosphere(id, config);
+        }
+
+        get(id) {
+          return this.atmospheres[id] || this.atmospheres['tierra'];
+        }
+
+        initDefaults() {
+          this.register('tierra', {
+            name: 'Tierra', pressure: 1.0, temperature: 293, molarMass: 0.029, gamma: 1.4,
+            absorptionCoeffs: { 100: 0.001, 1000: 0.003, 10000: 0.01 }
+          });
+          this.register('marte', {
+            name: 'Marte', pressure: 0.006, temperature: 210, molarMass: 0.044, gamma: 1.3,
+            absorptionCoeffs: { 100: 0.01, 1000: 0.1, 10000: 0.5 }
+          });
+          this.register('venus', {
+            name: 'Venus', pressure: 92, temperature: 737, molarMass: 0.044, gamma: 1.3,
+            absorptionCoeffs: { 100: 0.0001, 1000: 0.001, 10000: 0.05 }
+          });
+          this.register('titan', {
+            name: 'Titán', pressure: 1.45, temperature: 94, molarMass: 0.028, gamma: 1.4,
+            absorptionCoeffs: { 100: 0.0005, 1000: 0.002, 10000: 0.008 }
+          });
+        }
+      }
+
+      // ============================================================
+      // 6. UI: Orquestador de la interfaz de usuario (conectado por eventos)
+      // ============================================================
+      class PlanetUI {
+        constructor(eventBus, playUC, atmosphereUC, loadUC, recordUC, audioEngine) {
+          this.eventBus = eventBus;
           this.playUC = playUC;
-          this.recordUC = recordUC;
           this.atmosphereUC = atmosphereUC;
+          this.loadUC = loadUC;
+          this.recordUC = recordUC;
+          this.audioEngine = audioEngine;
 
-          this._setupFileInput();
+          // Elementos DOM
+          this.fileInput = document.getElementById('audioFileInput');
+          this.fileLabel = document.getElementById('fileLabel');
+          this.atmosphereSelect = document.getElementById('atmosphereSelect');
+          this.atmoData = document.getElementById('atmoData');
+          this.keyboardDiv = document.getElementById('keyboard');
+          this.paramsInfo = document.getElementById('paramsInfo');
+          this.statusMsg = document.getElementById('statusMsg');
+          this.selectionInfo = document.getElementById('selectionInfo');
+          this.recBtn = document.getElementById('recBtn');
+          this.stopBtn = document.getElementById('stopBtn');
+          this.downloadLink = document.getElementById('downloadLink');
+          this.gainBoost = document.getElementById('gainBoost');
+          this.gainValue = document.getElementById('gainValue');
+
+          this._setupListeners();
           this._setupKeyboard();
-          this._setupAtmosphereSelect(atmosphereRepo);
-          this._setupRecButtons();
-          this._setupWindowResize();
+          // Inicializar atmósfera por defecto
+          this.atmosphereUC.execute('tierra');
         }
 
-        /** Actualiza elementos de UI desde los casos de uso */
-        updateUI(update) {
-          if (update.status !== undefined) {
-            document.getElementById('statusMsg').textContent = update.status;
-            document.getElementById('statusMsg').className = 'status ' + (update.statusClass || 'ok');
-          }
-          if (update.fileName !== undefined) {
-            document.getElementById('fileLabel').textContent = '✅ ' + update.fileName;
-          }
-          if (update.atmoData !== undefined) {
-            document.getElementById('atmoData').innerHTML = update.atmoData;
-          }
-          if (update.downloadUrl !== undefined) {
-            const link = document.getElementById('downloadLink');
-            link.href = update.downloadUrl;
-            link.download = update.downloadFileName || 'grabacion_planetaria.webm';
-            link.textContent = '💾 Descargar grabación (' + (update.downloadFileName ? update.downloadFileName.split('.').pop() : '') + ')';
-            link.style.display = 'block';
-          }
-          if (update.recording !== undefined) {
-            document.getElementById('recBtn').disabled = update.recording;
-            document.getElementById('stopBtn').disabled = !update.recording;
-          }
-        }
+        _setupListeners() {
+          // Escuchar eventos del bus
+          this.eventBus.on('status', ({ text, type }) => {
+            this.statusMsg.textContent = text;
+            this.statusMsg.className = 'status ' + (type || 'ok');
+          });
 
-        _setupFileInput() {
-          const fileInput = document.getElementById('audioFileInput');
-          fileInput.addEventListener('change', async (e) => {
+          this.eventBus.on('fileLoaded', ({ name }) => {
+            this.fileLabel.textContent = '✅ ' + name;
+          });
+
+          this.eventBus.on('atmosphereChanged', (data) => {
+            this.atmoData.innerHTML = `
+              Presión: <span>${data.pressure} atm</span> |
+              Temp: <span>${data.temperature} K</span> |
+              Vel. sonido: <span>${data.soundSpeed} m/s</span> |
+              Densidad: <span>${data.density} kg/m³</span>
+            `;
+          });
+
+          this.eventBus.on('notePlayed', ({ freq, params, warning }) => {
+            this.paramsInfo.innerHTML = `
+              Nota: ${freq.toFixed(1)}Hz | Pitch x${params.pitchMultiplier.toFixed(3)} |
+              Vol: ${params.volumeFactor.toFixed(3)} | Cutoff: ${params.cutoffFrequency.toFixed(0)}Hz
+              ${warning ? `<br>⚠️ ${warning}` : ''}
+            `;
+            if (warning) {
+              this.statusMsg.textContent = warning;
+              this.statusMsg.className = 'status partial';
+            } else {
+              this.statusMsg.textContent = '▶ Reproduciendo';
+              this.statusMsg.className = 'status ok';
+            }
+          });
+
+          this.eventBus.on('recordingState', ({ active }) => {
+            this.recBtn.disabled = active;
+            this.stopBtn.disabled = !active;
+          });
+
+          this.eventBus.on('downloadReady', ({ url, filename }) => {
+            this.downloadLink.href = url;
+            this.downloadLink.download = filename;
+            this.downloadLink.textContent = `💾 Descargar grabación (${filename.split('.').pop()})`;
+            this.downloadLink.style.display = 'block';
+          });
+
+          // Eventos de usuario -> casos de uso
+          this.fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            // Asegurar que el motor de audio está inicializado (requiere gesto)
             try {
+              this.audioEngine.init(); // Asegurar contexto de audio
               await this.loadUC.execute(file);
             } catch (err) {
-              this.updateUI({ status: 'Error: ' + err.message, statusClass: 'rejected' });
+              this.eventBus.emit('status', { text: 'Error: ' + err.message, type: 'rejected' });
+            }
+          });
+
+          this.atmosphereSelect.addEventListener('change', () => {
+            this.atmosphereUC.execute(this.atmosphereSelect.value);
+          });
+
+          // Ganancia de emergencia
+          this.gainBoost.addEventListener('input', () => {
+            const val = parseInt(this.gainBoost.value, 10);
+            this.gainValue.textContent = '×' + val;
+            this.playUC.setEmergencyGain(val);
+          });
+
+          // Grabación
+          this.recBtn.addEventListener('click', () => {
+            if (!this.audioEngine.initialized) this.audioEngine.init();
+            this.recordUC.start();
+          });
+
+          this.stopBtn.addEventListener('click', () => {
+            this.recordUC.stop();
+          });
+
+          // Redimensionamiento de canvas
+          window.addEventListener('resize', () => {
+            const waveCanvas = document.getElementById('waveCanvas');
+            waveCanvas.width = waveCanvas.clientWidth;
+            waveCanvas.height = 150;
+            const analyserCanvas = document.getElementById('analyserCanvas');
+            analyserCanvas.width = analyserCanvas.clientWidth;
+            analyserCanvas.height = 80;
+            // Redibujar forma de onda si el renderer está disponible
+            if (this.playUC.renderer) {
+              this.playUC.renderer.draw();
             }
           });
         }
@@ -945,128 +1111,77 @@
             { label: 'Si4', freq: 493.88 },
             { label: 'Do5', freq: 523.25 }
           ];
-          const keyboardDiv = document.getElementById('keyboard');
-          keyboardDiv.innerHTML = ''; // limpiar por si acaso
-          notes.forEach((note, index) => {
+          this.keyboardDiv.innerHTML = '';
+          notes.forEach((note) => {
             const btn = document.createElement('button');
             btn.textContent = note.label;
             btn.addEventListener('click', () => {
-              // Inicializar audio en el primer clic si no está
-              if (!this.playUC.audioEngine.initialized) {
-                this.playUC.audioEngine.init();
+              if (!this.audioEngine.initialized) {
+                this.audioEngine.init();
               }
-              const params = this.playUC.execute(note.freq, 261.63);
-              if (params) {
-                document.getElementById('paramsInfo').innerHTML = `
-                  Nota: ${note.freq.toFixed(1)}Hz | Pitch x${params.pitchMultiplier.toFixed(3)} |
-                  Vol: ${params.volumeFactor.toFixed(3)} | Cutoff: ${params.cutoffFrequency.toFixed(0)}Hz
-                `;
-                this.updateUI({ status: '▶ Reproduciendo', statusClass: 'ok' });
+              const result = this.playUC.execute(note.freq, 261.63);
+              if (result.played) {
                 // Efecto visual
-                const allBtns = keyboardDiv.querySelectorAll('button');
+                const allBtns = this.keyboardDiv.querySelectorAll('button');
                 allBtns.forEach(b => b.classList.remove('playing'));
                 btn.classList.add('playing');
                 setTimeout(() => btn.classList.remove('playing'), 300);
-              } else {
-                this.updateUI({ status: 'Carga un archivo de audio primero', statusClass: 'partial' });
               }
             });
-            keyboardDiv.appendChild(btn);
-          });
-        }
-
-        _setupAtmosphereSelect(atmosphereRepo) {
-          const select = document.getElementById('atmosphereSelect');
-          select.addEventListener('change', () => {
-            this.atmosphereUC.execute(select.value);
-          });
-          // Inicializar con Tierra
-          this.atmosphereUC.execute('tierra');
-        }
-
-        _setupRecButtons() {
-          const recBtn = document.getElementById('recBtn');
-          const stopBtn = document.getElementById('stopBtn');
-
-          recBtn.addEventListener('click', () => {
-            if (!this.playUC.audioEngine.initialized) {
-              this.playUC.audioEngine.init();
-            }
-            this.recordUC.start();
-          });
-
-          stopBtn.addEventListener('click', () => {
-            this.recordUC.stop();
-          });
-        }
-
-        _setupWindowResize() {
-          window.addEventListener('resize', () => {
-            const waveCanvas = document.getElementById('waveCanvas');
-            if (waveCanvas) {
-              waveCanvas.width = waveCanvas.clientWidth;
-              waveCanvas.height = 150;
-            }
-            const analyserCanvas = document.getElementById('analyserCanvas');
-            if (analyserCanvas) {
-              analyserCanvas.width = analyserCanvas.clientWidth;
-              analyserCanvas.height = 80;
-            }
-            // Redibujar forma de onda si el renderer está disponible
-            if (this.playUC && this.playUC.renderer) {
-              this.playUC.renderer.draw();
-            }
+            this.keyboardDiv.appendChild(btn);
           });
         }
       }
 
       // ============================================================
-      // COMPOSICIÓN: Punto de entrada, cablea todo
+      // 7. COMPOSICIÓN: Punto de entrada, cablea todo
       // ============================================================
       window.addEventListener('load', () => {
         // 1. Infraestructura
+        const eventBus = new EventBus();
         const audioEngine = new WebAudioEngine();
+
+        // Canvas
         const waveCanvas = document.getElementById('waveCanvas');
         waveCanvas.width = waveCanvas.clientWidth;
         waveCanvas.height = 150;
         const analyserCanvas = document.getElementById('analyserCanvas');
         analyserCanvas.width = analyserCanvas.clientWidth;
         analyserCanvas.height = 80;
+
         const renderer = new CanvasWaveformRenderer(waveCanvas);
         const recorder = new MediaRecorderAdapter(audioEngine.getMediaStream());
+        // eslint-disable-next-line no-unused-vars
         const visualizer = new AnalyserVisualizer(analyserCanvas, audioEngine.getAnalyserNode());
 
         // 2. Dominio
         const atmosRepo = new AtmosphereRepository();
         atmosRepo.initDefaults();
         const propagator = new SoundPropagator();
-        propagator.setAtmosphere(atmosRepo.get('tierra'));
 
-        // 3. Controlador de minimapa
+        // 3. Minimapa
         const minimapDiv = document.getElementById('minimap');
         const sourceDot = document.getElementById('sourceDot');
         const minimap = new MinimapController(minimapDiv, sourceDot);
 
-        // 4. UI global (singleton)
-        const ui = new PlanetUI();
+        // 4. Casos de uso
+        const loadUC = new LoadSampleUseCase(audioEngine, renderer, eventBus);
+        const playUC = new PlayNoteUseCase(audioEngine, propagator, renderer, minimap, eventBus);
+        const atmosphereUC = new ChangeAtmosphereUseCase(atmosRepo, propagator, eventBus);
+        const recordUC = new RecordMixUseCase(recorder, eventBus);
 
-        // 5. Casos de uso
-        const loadUC = new LoadSampleUseCase(audioEngine, renderer, ui.updateUI.bind(ui));
-        const playUC = new PlayNoteUseCase(audioEngine, propagator, renderer, minimap);
-        const atmosphereUC = new ChangeAtmosphereUseCase(atmosRepo, propagator, ui.updateUI.bind(ui));
-        const recordUC = new RecordMixUseCase(recorder, ui.updateUI.bind(ui));
+        // 5. Iniciar UI (ella se suscribe al bus de eventos)
+        // eslint-disable-next-line no-unused-vars
+        const ui = new PlanetUI(eventBus, playUC, atmosphereUC, loadUC, recordUC, audioEngine);
 
-        // 6. Conectar UI con casos de uso
-        ui.init({ loadUC, playUC, recordUC, atmosphereUC, atmosphereRepo: atmosRepo });
-
-        // Actualizar información de selección cuando cambie
+        // 6. Sincronizar selección de onda con UI
         renderer.onSelectionChange = (start, end) => {
           document.getElementById('selectionInfo').textContent =
             `Inicio: ${start.toFixed(3)}s | Fin: ${end.toFixed(3)}s | Duración: ${(end - start).toFixed(3)}s`;
         };
 
         // Mensaje inicial
-        ui.updateUI({ status: 'Haz clic en "Seleccionar archivo" o toca una nota para iniciar', statusClass: 'ok' });
+        eventBus.emit('status', { text: 'Haz clic en "Seleccionar archivo" o toca una nota para iniciar', type: 'ok' });
       });
     })();
   </script>
