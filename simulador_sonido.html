@@ -1,0 +1,1368 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulador Acústico 2D — Ondas de Presión en Medios Planetarios</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0a0a1a; color: #e0e0ff;
+    display: flex; flex-direction: column; align-items: center;
+    min-height: 100vh; padding: 20px;
+    background-image: radial-gradient(ellipse at center, #1a1a3a 0%, #050510 100%);
+  }
+  h1 {
+    text-align: center; margin-bottom: 15px;
+    font-size: clamp(1.4rem, 4vw, 1.9rem);
+    background: linear-gradient(135deg, #66ddff, #44ff88);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .container {
+    max-width: 1150px; width: 100%;
+    display: grid; grid-template-columns: 1fr 1.4fr; gap: 20px;
+  }
+  @media (max-width: 850px) { .container { grid-template-columns: 1fr; } }
+  .panel {
+    background: rgba(20, 20, 50, 0.85);
+    border: 1px solid rgba(100, 100, 200, 0.3);
+    border-radius: 16px; padding: 20px;
+    backdrop-filter: blur(10px);
+  }
+  .panel h2 { margin-bottom: 10px; font-size: 1.05rem; color: #aaccff; }
+  select, button, input[type="range"] {
+    width: 100%; padding: 10px 14px; margin-bottom: 10px;
+    border-radius: 8px; border: 1px solid rgba(150, 150, 220, 0.4);
+    background: rgba(30, 30, 60, 0.9); color: #fff; font-size: 1rem;
+    cursor: pointer; transition: all 0.2s;
+  }
+  button { background: linear-gradient(135deg, #2a2a5a, #1a1a3a); }
+  button:hover { background: linear-gradient(135deg, #3a3a7a, #2a2a5a); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .param-group {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px; gap: 8px;
+  }
+  .param-group label { flex: 1; font-size: 0.85rem; color: #aaccff; }
+  .param-group input[type="range"] { flex: 2; margin: 0; padding: 4px; }
+  .param-group span { flex: 0 0 70px; text-align: right; color: #ffcc00; font-family: monospace; font-size: 0.85rem; }
+  .sim-controls { display: flex; gap: 6px; flex-wrap: wrap; }
+  .sim-controls button { flex: 1; min-width: 70px; padding: 10px 6px; font-size: 0.85rem; }
+  canvas { width: 100%; height: auto; border-radius: 8px; background: #04040a; margin-top: 6px; display: block; }
+  .status { text-align: center; padding: 8px; border-radius: 6px; font-weight: 600; margin-top: 8px; font-size: 0.9rem; }
+  .status.ok { color: #66ffa0; }
+  .status.partial { color: #ffcc00; }
+  .status.rejected { color: #ff6666; }
+  .medium-info {
+    font-family: 'Courier New', monospace; font-size: 0.78rem; color: #99bbee;
+    margin-top: 6px; background: #0a0a18; padding: 8px; border-radius: 6px;
+    line-height: 1.4;
+  }
+  .hud { display: flex; justify-content: space-between; font-size: 0.75rem; color: #8899bb; font-family: monospace; margin-top: 4px; }
+  .footer { margin-top: 20px; font-size: 0.75rem; color: #556; text-align: center; max-width: 800px; }
+</style>
+</head>
+<body>
+<h1>🔊 Simulador Acústico 2D · Ondas de Presión</h1>
+<div class="container">
+  <div class="panel">
+    <h2>🪐 Medio</h2>
+    <select id="planetSelect">
+      <option value="tierra">🌍 Tierra</option>
+      <option value="marte">🔴 Marte</option>
+      <option value="venus">🟠 Venus</option>
+      <option value="titan">🪐 Titán</option>
+    </select>
+    <div class="medium-info" id="mediumInfo">—</div>
+
+    <h2 style="margin-top:12px;">🔲 Frontera</h2>
+    <select id="boundarySelect">
+      <option value="chamber">Cámara (paredes rígidas)</option>
+      <option value="open">Abierto (absorbente)</option>
+    </select>
+
+    <h2 style="margin-top:12px;">🎯 Fuente</h2>
+    <div class="param-group">
+      <label>Frecuencia (Hz)</label>
+      <input type="range" id="freqSlider" min="100" max="2000" value="800" step="10">
+      <span id="freqValue">800</span>
+    </div>
+    <div class="param-group">
+      <label>Amplitud</label>
+      <input type="range" id="ampSlider" min="0.1" max="5" value="1" step="0.1">
+      <span id="ampValue">1.0</span>
+    </div>
+
+    <h2 style="margin-top:12px;">▶️ Simulación</h2>
+    <div class="sim-controls">
+      <button id="startBtn">Iniciar</button>
+      <button id="pauseBtn" disabled>Pausar</button>
+      <button id="stepBtn">Paso</button>
+      <button id="resetBtn">Reiniciar</button>
+    </div>
+    <button id="listenBtn" style="margin-top:8px; background:linear-gradient(135deg,#2a7a5a,#1a4a3a);">🎧 Escuchar el medio</button>
+    <div class="status ok" id="statusMsg">Listo.</div>
+  </div>
+
+  <div class="panel">
+    <h2>📊 Campo de presión p(x,z)</h2>
+    <canvas id="wavefieldCanvas" width="600" height="450"></canvas>
+    <div class="hud">
+      <span style="color:#ff4466;">● Fuente</span>
+      <span style="color:#22ddff;">● Receptor</span>
+      <span>t = <span id="timeDisplay">0.0000</span> s</span>
+      <span>paso = <span id="stepDisplay">0</span></span>
+    </div>
+
+    <h2 style="margin-top:12px;">📈 Traza del receptor</h2>
+    <canvas id="traceCanvas" width="600" height="100"></canvas>
+  </div>
+</div>
+<div class="footer">
+  Solver de diferencias finitas en grid escalonado (leapfrog). Presión y velocidad acústica.
+  Diferentes atmósferas → diferentes velocidades del sonido, densidades y resonancias.
+</div>
+
+<script>
+(() => {
+'use strict';
+
+// ============================================================
+// 1. DOMINIO — entidades puras, sin dependencias externas
+// ============================================================
+
+/** Constantes físicas */
+const R_GAS = 8.314;         // J/(mol·K)
+const ATM_TO_PA = 101325;    // Pa/atm
+
+/**
+ * Medio acústico definido por parámetros planetarios.
+ *
+ * Física de gas ideal:
+ *   c = √(γ·R·T / M)          velocidad del sonido
+ *   ρ = P·M / (R·T)            densidad (P en Pa, M en kg/mol)
+ *   Z = ρ·c                    impedancia característica
+ *
+ * La "absorción" (0..1) no entra en el solver (que es lineal y sin
+ * pérdidas), sino en la etapa de sonificación: modela cómo el medio
+ * atenúa las altas frecuencias.
+ */
+class AcousticMedium {
+  constructor({ name, pressure, temperature, molarMass, gamma, absorption = 0.3 }) {
+    this.name = name;
+    this.pressure = pressure;         // atm
+    this.temperature = temperature;   // K
+    this.molarMass = molarMass;       // kg/mol
+    this.gamma = gamma;
+    this.absorption = absorption;
+  }
+
+  /** Velocidad del sonido (m/s) */
+  get soundSpeed() {
+    return Math.sqrt((this.gamma * R_GAS * this.temperature) / this.molarMass);
+  }
+
+  /** Densidad del gas (kg/m³) */
+  get density() {
+    return (this.pressure * ATM_TO_PA * this.molarMass) / (R_GAS * this.temperature);
+  }
+
+  /** Impedancia acústica (rayls) */
+  get impedance() {
+    return this.density * this.soundSpeed;
+  }
+}
+
+/** Fuente puntual de presión. */
+class Source {
+  constructor({ x, z, freq, amp, type = 'ricker' }) {
+    this.x = x; this.z = z;
+    this.freq = freq; this.amp = amp;
+    this.type = type;
+  }
+}
+
+/** Receptor que registra presión en su posición. */
+class Receiver {
+  constructor({ x, z, label = '' }) {
+    this.x = x; this.z = z;
+    this.label = label;
+    this.trace = [];
+  }
+}
+
+/**
+ * Configuración completa de una simulación acústica.
+ *
+ * Grid escalonado (leapfrog):
+ *   - p[i,j]  en (i·dx, j·dz)
+ *   - vx[i,j] en ((i+½)·dx, j·dz)   para i ∈ [0, nx-1)
+ *   - vz[i,j] en (i·dx, (j+½)·dz)   para j ∈ [0, nz-1)
+ *
+ * Modos de frontera:
+ *   - 'open'    : capa de esponja (sponge) en los cuatro lados.
+ *   - 'chamber' : paredes rígidas (∂p/∂n = 0). Resonancias.
+ */
+class SimulationConfig {
+  constructor() {
+    this.nx = 120;
+    this.nz = 90;
+    this.dx = 0.02;
+    this.dz = 0.02;
+    this.courant = 0.5;
+    this.dt = 0;
+    this.medium = null;
+    this.source = null;
+    this.receivers = [];
+    this.boundaryMode = 'chamber';
+    this.spongeWidth = 15;
+    this.time = 0;
+    this.stepCount = 0;
+  }
+
+  /**
+   * CFL 2D: dt ≤ S · min(dx,dz) / (c · √2)
+   * S < 1 es condición necesaria de estabilidad.
+   */
+  updateDt() {
+    const c = this.medium ? this.medium.soundSpeed : 343;
+    const dmin = Math.min(this.dx, this.dz);
+    this.dt = this.courant * dmin / (c * Math.SQRT2);
+  }
+
+  get physicalWidth()  { return this.nx * this.dx; }
+  get physicalHeight() { return this.nz * this.dz; }
+  get sampleRate()     { return 1 / this.dt; }
+}
+
+// ============================================================
+// 2. PUERTOS (interfaces documentadas, no implementadas aquí)
+// ============================================================
+//
+// WaveEnginePort:
+//   init(config)         : void
+//   step()               : void
+//   getFieldData()       : Float32Array   (presión por celda)
+//   getReceiverTraces()  : Float32Array[]
+//
+// EventBusPort:
+//   on(event, callback)  : void
+//   off(event, callback) : void
+//   emit(event, payload) : void
+//
+// RendererPort (campo):
+//   drawField(data, nx, nz, config) : void
+//
+// RendererPort (traza):
+//   draw(traces, receivers) : void
+//
+// SonifierPort:
+//   play(samples, sampleRate, options) : void
+//
+// MediumRepositoryPort:
+//   get(id)              : AcousticMedium
+//   list()               : AcousticMedium[]
+//   register(id, medium) : void
+
+// ============================================================
+// 3. INFRAESTRUCTURA
+// ============================================================
+
+/** Bus de eventos: mediador desacoplado. */
+class EventBus {
+  constructor() { this.listeners = new Map(); }
+  on(evt, cb) {
+    if (!this.listeners.has(evt)) this.listeners.set(evt, new Set());
+    this.listeners.get(evt).add(cb);
+  }
+  off(evt, cb) {
+    if (this.listeners.has(evt)) this.listeners.get(evt).delete(cb);
+  }
+  emit(evt, payload) {
+    const cbs = this.listeners.get(evt);
+    if (cbs) cbs.forEach(cb => cb(payload));
+  }
+}
+
+/**
+ * Motor acústico 2D — diferencias finitas en grid escalonado.
+ *
+ * Ecuaciones de primer orden (lineal, sin pérdidas):
+ *   ∂vx/∂t = -(1/ρ) ∂p/∂x
+ *   ∂vz/∂t = -(1/ρ) ∂p/∂z
+ *   ∂p/∂t  = -ρc² (∂vx/∂x + ∂vz/∂z)
+ *
+ * Leapfrog:
+ *   v^{n+½} = v^{n-½} - (dt/ρ) ∇p^n
+ *   p^{n+1} = p^n - dt·ρc² ∇·v^{n+½}
+ *
+ * Estabilidad: dt ≤ S·min(dx,dz)/(c·√2), S < 1.
+ *
+ * Fronteras:
+ *   - 'open':    amortiguamiento tipo esponja, perfil cúbico.
+ *   - 'chamber': p[0]=p[1], p[nx-1]=p[nx-2] (Neumann → pared rígida).
+ */
+class AcousticEngine {
+  constructor() {
+    this.config = null;
+    this.sourceFunc = null;
+  }
+
+  init(config) {
+    this.config = config;
+    this._allocateFields();
+    this._buildSponge();
+    this._buildSourceFunction();
+    this._resetFields();
+  }
+
+  /** Asigna memoria para los campos (una vez por simulación). */
+  _allocateFields() {
+    const n = this.config.nx * this.config.nz;
+    this.p  = new Float32Array(n);
+    this.vx = new Float32Array(n);
+    this.vz = new Float32Array(n);
+    this.damping = new Float32Array(n);
+  }
+
+  /**
+   * Capa de esponja: amortiguamiento perfil cúbico.
+   * Sólo se aplica cuando boundaryMode === 'open'.
+   */
+  _buildSponge() {
+    const { nx, nz, spongeWidth: W, boundaryMode } = this.config;
+    if (boundaryMode !== 'open') return;   // chamber: sin amortiguamiento
+    const maxDamp = 0.1;
+    for (let j = 0; j < nz; j++) {
+      for (let i = 0; i < nx; i++) {
+        const dEdge = Math.min(i, nx - 1 - i, j, nz - 1 - j);
+        let d = 0;
+        if (dEdge < W) {
+          const t = (W - dEdge) / W;
+          d = maxDamp * t * t * t;
+        }
+        this.damping[i + j * nx] = d;
+      }
+    }
+  }
+
+  /**
+   * Función temporal de la fuente.
+   *   'ricker': ondícula de Ricker, banda ancha.
+   *   'tone':   tono con envolvente gaussiana, banda estrecha.
+   */
+  _buildSourceFunction() {
+    const src = this.config.source;
+    if (!src) { this.sourceFunc = null; return; }
+    const f = src.freq;
+    const amp = src.amp;
+
+    if (src.type === 'tone') {
+      const t0 = 3 / f;
+      const tau = 1.2 / f;
+      this.sourceFunc = (t) => {
+        const arg = (t - t0) / tau;
+        return amp * Math.sin(2 * Math.PI * f * (t - t0)) * Math.exp(-arg * arg);
+      };
+    } else {
+      const t0 = 1 / f;
+      this.sourceFunc = (t) => {
+        const tau = Math.PI * f * (t - t0);
+        return amp * (1 - 2 * tau * tau) * Math.exp(-tau * tau);
+      };
+    }
+  }
+
+  /** Reinicia campos y trazas. */
+  _resetFields() {
+    this.p.fill(0);
+    this.vx.fill(0);
+    this.vz.fill(0);
+    this.config.time = 0;
+    this.config.stepCount = 0;
+    this.config.receivers.forEach(r => { r.trace = []; });
+  }
+
+  /**
+   * Avanza un paso temporal.
+   * Orden: (1) v ← ∇p, (2) fuente, (3) p ← ∇·v, (4) fronteras, (5) registro.
+   */
+  step() {
+    const cfg = this.config;
+    const { nx, nz, dx, dz, dt, source, receivers, boundaryMode } = cfg;
+    const rho = cfg.medium.density;
+    const c2 = cfg.medium.soundSpeed ** 2;
+    const t = cfg.time;
+
+    // --- (1) Velocidades ---
+    for (let j = 0; j < nz; j++) {
+      for (let i = 0; i < nx - 1; i++) {
+        const idx = i + j * nx;
+        this.vx[idx] -= (dt / rho) * (this.p[idx + 1] - this.p[idx]) / dx;
+      }
+    }
+    for (let j = 0; j < nz - 1; j++) {
+      for (let i = 0; i < nx; i++) {
+        const idx = i + j * nx;
+        this.vz[idx] -= (dt / rho) * (this.p[idx + nx] - this.p[idx]) / dz;
+      }
+    }
+
+    // --- (2) Fuente (inyectada en la presión) ---
+    if (source && this.sourceFunc) {
+      const si = Math.round(source.x / dx);
+      const sj = Math.round(source.z / dz);
+      if (si >= 1 && si < nx - 1 && sj >= 1 && sj < nz - 1) {
+        this.p[si + sj * nx] += this.sourceFunc(t);
+      }
+    }
+
+    // --- (3) Presión (divergencia de velocidad) ---
+    for (let j = 1; j < nz - 1; j++) {
+      for (let i = 1; i < nx - 1; i++) {
+        const idx = i + j * nx;
+        const divX = (this.vx[idx] - this.vx[idx - 1]) / dx;
+        const divZ = (this.vz[idx] - this.vz[idx - nx]) / dz;
+        this.p[idx] -= dt * rho * c2 * (divX + divZ);
+      }
+    }
+
+    // --- (4) Fronteras ---
+    if (boundaryMode === 'open') {
+      // Esponja: amortiguamiento proporcional al perfil
+      for (let j = 0; j < nz; j++) {
+        for (let i = 0; i < nx; i++) {
+          const idx = i + j * nx;
+          const d = this.damping[idx];
+          if (d > 0) {
+            const f = 1 - d;
+            this.p[idx]  *= f;
+            this.vx[idx] *= f;
+            this.vz[idx] *= f;
+          }
+        }
+      }
+    } else {
+      // Cámara: paredes rígidas (Neumann → ∂p/∂n = 0)
+      for (let j = 0; j < nz; j++) {
+        this.p[0 + j * nx]          = this.p[1 + j * nx];
+        this.p[(nx - 1) + j * nx]   = this.p[(nx - 2) + j * nx];
+      }
+      for (let i = 0; i < nx; i++) {
+        this.p[i + 0 * nx]          = this.p[i + 1 * nx];
+        this.p[i + (nz - 1) * nx]   = this.p[i + (nz - 2) * nx];
+      }
+    }
+
+    // --- (5) Receptores ---
+    for (let k = 0; k < receivers.length; k++) {
+      const r = receivers[k];
+      const ri = Math.round(r.x / dx);
+      const rj = Math.round(r.z / dz);
+      if (ri >= 0 && ri < nx && rj >= 0 && rj < nz) {
+        r.trace.push(this.p[ri + rj * nx]);
+      }
+    }
+
+    cfg.time += dt;
+    cfg.stepCount++;
+  }
+
+  getFieldData() { return this.p; }
+  getReceiverTraces() {
+    return this.config.receivers.map(r => Float32Array.from(r.trace));
+  }
+}
+
+/**
+ * Visualizador del campo de presión — mapa divergente.
+ */
+class FieldVisualizer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.offscreen = null;
+    this.offCtx = null;
+    this.imageData = null;
+  }
+
+  drawField(data, nx, nz, config) {
+    if (!this.offscreen || this.offscreen.width !== nx || this.offscreen.height !== nz) {
+      this.offscreen = document.createElement('canvas');
+      this.offscreen.width = nx;
+      this.offscreen.height = nz;
+      this.offCtx = this.offscreen.getContext('2d');
+      this.imageData = this.offCtx.createImageData(nx, nz);
+    }
+    const img = this.imageData.data;
+
+    let maxVal = 1e-20;
+    for (let k = 0; k < data.length; k++) {
+      const a = Math.abs(data[k]);
+      if (a > maxVal) maxVal = a;
+    }
+    const inv = 1 / maxVal;
+
+    for (let idx = 0; idx < data.length; idx++) {
+      const val = data[idx] * inv;
+      const p = idx * 4;
+      const col = this._divergingColor(val);
+      img[p] = col[0]; img[p + 1] = col[1]; img[p + 2] = col[2]; img[p + 3] = 255;
+    }
+    this.offCtx.putImageData(this.imageData, 0, 0);
+
+    const ctx = this.ctx;
+    const W = this.canvas.width, H = this.canvas.height;
+    const aspect = nx / nz, canvasAspect = W / H;
+    let dw, dh, dx0, dy0;
+    if (aspect > canvasAspect) {
+      dw = W; dh = W / aspect; dx0 = 0; dy0 = (H - dh) / 2;
+    } else {
+      dh = H; dw = H * aspect; dx0 = (W - dw) / 2; dy0 = 0;
+    }
+    ctx.fillStyle = '#04040a';
+    ctx.fillRect(0, 0, W, H);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.offscreen, dx0, dy0, dw, dh);
+
+    const toCanvas = (x, z) => ({
+      cx: dx0 + (x / (nx * config.dx)) * dw,
+      cy: dy0 + (z / (nz * config.dz)) * dh,
+    });
+    if (config.source) {
+      const { cx, cy } = toCanvas(config.source.x, config.source.z);
+      ctx.fillStyle = '#ff4466';
+      ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 2 * Math.PI); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    ctx.fillStyle = '#22ddff';
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+    config.receivers.forEach(r => {
+      const { cx, cy } = toCanvas(r.x, r.z);
+      ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+    });
+  }
+
+  _divergingColor(t) {
+    if (t >= 0) {
+      const s = Math.min(1, t);
+      return [Math.floor(5 + 250 * s), Math.floor(5 + 75 * s), Math.floor(15 + 5 * s)];
+    } else {
+      const s = Math.min(1, -t);
+      return [Math.floor(5 + 15 * s), Math.floor(5 + 75 * s), Math.floor(15 + 240 * s)];
+    }
+  }
+}
+
+/** Renderiza la traza del primer receptor. */
+class TraceRenderer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+  }
+
+  draw(traces, receivers) {
+    const ctx = this.ctx;
+    const W = this.canvas.width, H = this.canvas.height;
+    ctx.fillStyle = '#04040a';
+    ctx.fillRect(0, 0, W, H);
+
+    if (!traces || traces.length === 0) return;
+    const trace = traces[0];
+    if (trace.length < 2) return;
+
+    let mx = 1e-12;
+    for (let k = 0; k < trace.length; k++) {
+      const a = Math.abs(trace[k]);
+      if (a > mx) mx = a;
+    }
+    const yScale = (H * 0.4) / mx;
+
+    ctx.strokeStyle = 'rgba(150,150,200,0.2)';
+    ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+
+    ctx.strokeStyle = '#44ddff';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const N = trace.length;
+    const startIdx = Math.max(0, N - W);
+    const shown = N - startIdx;
+    for (let k = 0; k < shown; k++) {
+      const x = (k / Math.max(1, shown - 1)) * W;
+      const y = H / 2 - trace[startIdx + k] * yScale;
+      if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+/**
+ * Sonificador — convierte una traza en audio reproducible.
+ *
+ * Pipeline:
+ *   1. Remuestreo a 44100 Hz (si hace falta)
+ *   2. Normalización + eliminación de DC
+ *   3. Fade-in / fade-out
+ *   4. Filtro paso-bajo según absorción del medio
+ *   5. Reproducción por Web Audio API
+ */
+class Sonifier {
+  constructor() {
+    this.ctx = null;
+  }
+
+  _ensureContext() {
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+  }
+
+  /** Remuestreo lineal. */
+  _resample(samples, srcRate, dstRate) {
+    if (Math.abs(srcRate - dstRate) < 1) return samples;
+    const ratio = srcRate / dstRate;
+    const N = Math.floor(samples.length / ratio);
+    const out = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      const srcIdx = i * ratio;
+      const i0 = Math.floor(srcIdx);
+      const i1 = Math.min(i0 + 1, samples.length - 1);
+      const frac = srcIdx - i0;
+      out[i] = samples[i0] * (1 - frac) + samples[i1] * frac;
+    }
+    return out;
+  }
+
+  play(samples, sampleRate, opts = {}) {
+    if (!samples || samples.length < 4) return;
+    this._ensureContext();
+
+    const TARGET_FS = 44100;
+    const resampled = this._resample(samples, sampleRate, TARGET_FS);
+    const N = resampled.length;
+    const buf = new Float32Array(N);
+
+    // Normalización
+    let mx = 1e-12;
+    for (let i = 0; i < N; i++) {
+      const a = Math.abs(resampled[i]);
+      if (a > mx) mx = a;
+    }
+    const norm = 1 / mx;
+    let mean = 0;
+    for (let i = 0; i < N; i++) {
+      buf[i] = resampled[i] * norm;
+      mean += buf[i];
+    }
+    mean /= N;
+    for (let i = 0; i < N; i++) buf[i] -= mean;
+
+    // Fade in/out
+    const fadeLen = Math.min(200, Math.floor(N / 10));
+    for (let i = 0; i < fadeLen; i++) {
+      buf[i] *= i / fadeLen;
+      buf[N - 1 - i] *= i / fadeLen;
+    }
+
+    // AudioBuffer
+    const audioBuffer = this.ctx.createBuffer(1, N, TARGET_FS);
+    audioBuffer.getChannelData(0).set(buf);
+
+    // Cadena
+    const src = this.ctx.createBufferSource();
+    src.buffer = audioBuffer;
+
+    const gainNode = this.ctx.createGain();
+    gainNode.gain.value = opts.gain ?? 0.8;
+
+    let last = src;
+    if (opts.lowpassHz && opts.lowpassHz > 0 && opts.lowpassHz < TARGET_FS / 2) {
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = opts.lowpassHz;
+      filter.Q.value = 0.7;
+      src.connect(filter);
+      last = filter;
+    }
+    last.connect(gainNode);
+    gainNode.connect(this.ctx.destination);
+
+    src.start();
+  }
+}
+
+// ============================================================
+// 4. CASOS DE USO
+// ============================================================
+
+class InitializeSimulationUseCase {
+  constructor(engine, bus) { this.engine = engine; this.bus = bus; }
+  execute(config) {
+    this.engine.init(config);
+    this.bus.emit('simulationInitialized', { config });
+  }
+}
+
+class StartSimulationUseCase {
+  constructor(engine, bus) { this.engine = engine; this.bus = bus; this.running = false; }
+  execute() {
+    if (this.running) return;
+    this.running = true;
+    this.bus.emit('simulationStarted');
+    const loop = () => {
+      if (!this.running) return;
+      this.engine.step();
+      emitFieldUpdate(this.engine, this.bus);
+      this.animationId = requestAnimationFrame(loop);
+    };
+    this.animationId = requestAnimationFrame(loop);
+  }
+  pause() {
+    this.running = false;
+    if (this.animationId) cancelAnimationFrame(this.animationId);
+    this.bus.emit('simulationPaused');
+  }
+  stop() {
+    this.running = false;
+    if (this.animationId) cancelAnimationFrame(this.animationId);
+  }
+}
+
+class StepSimulationUseCase {
+  constructor(engine, bus) { this.engine = engine; this.bus = bus; }
+  execute() {
+    this.engine.step();
+    emitFieldUpdate(this.engine, this.bus);
+  }
+}
+
+class ResetSimulationUseCase {
+  constructor(engine, bus) { this.engine = engine; this.bus = bus; }
+  execute() {
+    this.engine._resetFields();
+    emitFieldUpdate(this.engine, this.bus);
+    this.bus.emit('simulationReset');
+  }
+}
+
+class UpdateMediumUseCase {
+  constructor(engine, bus) { this.engine = engine; this.bus = bus; }
+  execute(medium) {
+    this.engine.config.medium = medium;
+    this.engine.config.updateDt();
+    this.bus.emit('mediumUpdated', { medium });
+  }
+}
+
+class UpdateSourceUseCase {
+  constructor(engine, bus) { this.engine = engine; this.bus = bus; }
+  execute(source) {
+    this.engine.config.source = source;
+    this.engine._buildSourceFunction();
+    this.bus.emit('sourceUpdated', { source });
+  }
+}
+
+class UpdateBoundaryUseCase {
+  constructor(engine, bus) { this.engine = engine; this.bus = bus; }
+  execute(mode) {
+    this.engine.config.boundaryMode = mode;
+    this.engine._buildSponge();
+    this.bus.emit('boundaryUpdated', { mode });
+  }
+}
+
+/**
+ * Sonifica el medio.
+ *
+ * Pasos:
+ *   1. Reset del campo (para oír un pulso limpio).
+ *   2. Ejecutar N pasos en chunks (cediendo al event loop).
+ *   3. Reproducir la traza del receptor.
+ */
+class SonifyMediumUseCase {
+  constructor(engine, sonifier, bus) {
+    this.engine = engine;
+    this.sonifier = sonifier;
+    this.bus = bus;
+  }
+
+  async execute(opts = {}) {
+    const cfg = this.engine.config;
+    if (!cfg || !cfg.medium) return;
+
+    this.engine._resetFields();
+
+    const duration = opts.duration ?? 0.25;
+    const steps = Math.floor(duration / cfg.dt);
+    const chunkSize = 400;
+
+    this.bus.emit('sonificationStarted', { steps, duration });
+
+    for (let done = 0; done < steps; done += chunkSize) {
+      const end = Math.min(done + chunkSize, steps);
+      for (let i = done; i < end; i++) this.engine.step();
+      this.bus.emit('sonificationProgress', { done: end, total: steps });
+      // Ceder al event loop para no congelar la UI
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    if (cfg.receivers.length === 0) return;
+    const trace = Float32Array.from(cfg.receivers[0].trace);
+
+    // Filtro paso-bajo según absorción: 0→nyquist, 1→500 Hz
+    const fs = cfg.sampleRate;
+    const nyq = fs / 2;
+    const abs = Math.min(1, Math.max(0, cfg.medium.absorption));
+    const cutoff = Math.max(500, nyq * (1 - abs * 0.9));
+
+    this.sonifier.play(trace, fs, { lowpassHz: cutoff });
+    emitFieldUpdate(this.engine, this.bus);
+    this.bus.emit('sonificationFinished', {
+      samples: trace.length,
+      sampleRate: fs,
+      cutoff,
+    });
+  }
+}
+
+/** Helper: emite el estado actual del motor al bus. */
+function emitFieldUpdate(engine, bus) {
+  const cfg = engine.config;
+  bus.emit('fieldUpdated', {
+    data: engine.getFieldData(),
+    nx: cfg.nx, nz: cfg.nz, config: cfg,
+    traces: engine.getReceiverTraces(),
+    receivers: cfg.receivers,
+  });
+}
+
+// ============================================================
+// 5. REPOSITORIO DE MEDIOS
+// ============================================================
+
+class PlanetRepository {
+  constructor() { this.planets = new Map(); }
+  register(id, medium) { this.planets.set(id, medium); }
+  get(id) { return this.planets.get(id) || this.planets.get('tierra'); }
+  list() { return Array.from(this.planets.values()); }
+
+  initDefaults() {
+    this.register('tierra', new AcousticMedium({
+      name: 'Tierra', pressure: 1.0, temperature: 293,
+      molarMass: 0.029, gamma: 1.4, absorption: 0.3,
+    }));
+    this.register('marte', new AcousticMedium({
+      name: 'Marte', pressure: 0.006, temperature: 210,
+      molarMass: 0.044, gamma: 1.3, absorption: 0.75,
+    }));
+    this.register('venus', new AcousticMedium({
+      name: 'Venus', pressure: 92, temperature: 737,
+      molarMass: 0.044, gamma: 1.3, absorption: 0.1,
+    }));
+    this.register('titan', new AcousticMedium({
+      name: 'Titán', pressure: 1.45, temperature: 94,
+      molarMass: 0.028, gamma: 1.4, absorption: 0.2,
+    }));
+  }
+}
+
+// ============================================================
+// 6. UI
+// ============================================================
+
+class AcousticUI {
+  constructor(bus, engine, visualizer, traceRenderer, repo, sonifyUC) {
+    this.bus = bus;
+    this.engine = engine;
+    this.visualizer = visualizer;
+    this.traceRenderer = traceRenderer;
+    this.repo = repo;
+    this.sonifyUC = sonifyUC;
+
+    this.initUC         = new InitializeSimulationUseCase(engine, bus);
+    this.startUC        = new StartSimulationUseCase(engine, bus);
+    this.stepUC         = new StepSimulationUseCase(engine, bus);
+    this.resetUC        = new ResetSimulationUseCase(engine, bus);
+    this.updateMediumUC = new UpdateMediumUseCase(engine, bus);
+    this.updateSourceUC = new UpdateSourceUseCase(engine, bus);
+    this.updateBoundaryUC = new UpdateBoundaryUseCase(engine, bus);
+
+    this.planetSelect   = document.getElementById('planetSelect');
+    this.boundarySelect = document.getElementById('boundarySelect');
+    this.mediumInfo     = document.getElementById('mediumInfo');
+    this.freqSlider     = document.getElementById('freqSlider');
+    this.freqValue      = document.getElementById('freqValue');
+    this.ampSlider      = document.getElementById('ampSlider');
+    this.ampValue       = document.getElementById('ampValue');
+    this.startBtn       = document.getElementById('startBtn');
+    this.pauseBtn       = document.getElementById('pauseBtn');
+    this.stepBtn        = document.getElementById('stepBtn');
+    this.resetBtn       = document.getElementById('resetBtn');
+    this.listenBtn      = document.getElementById('listenBtn');
+    this.statusMsg      = document.getElementById('statusMsg');
+    this.timeDisplay    = document.getElementById('timeDisplay');
+    this.stepDisplay    = document.getElementById('stepDisplay');
+
+    this._setupListeners();
+    this._buildDefaultConfig();
+  }
+
+  _buildDefaultConfig() {
+    const medium = this.repo.get('tierra');
+    const cfg = new SimulationConfig();
+    cfg.medium = medium;
+    cfg.boundaryMode = 'chamber';
+    cfg.source = new Source({
+      x: cfg.physicalWidth * 0.25,
+      z: cfg.physicalHeight * 0.5,
+      freq: 800, amp: 1, type: 'ricker',
+    });
+    cfg.receivers = [ new Receiver({
+      x: cfg.physicalWidth * 0.75,
+      z: cfg.physicalHeight * 0.5,
+      label: 'R1',
+    }) ];
+    cfg.updateDt();
+
+    this.initUC.execute(cfg);
+    this._refreshMediumInfo(medium);
+    emitFieldUpdate(this.engine, this.bus);
+    this._setStatus(
+      `Medio: ${medium.name} · c = ${medium.soundSpeed.toFixed(1)} m/s`,
+      'ok'
+    );
+  }
+
+  _setupListeners() {
+    this.planetSelect.addEventListener('change', () => {
+      const medium = this.repo.get(this.planetSelect.value);
+      this.updateMediumUC.execute(medium);
+      this._refreshMediumInfo(medium);
+      this._setStatus(`Medio: ${medium.name}`, 'ok');
+    });
+
+    this.boundarySelect.addEventListener('change', () => {
+      this.updateBoundaryUC.execute(this.boundarySelect.value);
+      this._setStatus(`Frontera: ${this.boundarySelect.value}`, 'ok');
+    });
+
+    this.freqSlider.addEventListener('input', () => {
+      const v = parseFloat(this.freqSlider.value);
+      this.freqValue.textContent = v;
+      if (this.engine.config.source) {
+        this.engine.config.source.freq = v;
+        this.updateSourceUC.execute(this.engine.config.source);
+      }
+    });
+
+    this.ampSlider.addEventListener('input', () => {
+      const v = parseFloat(this.ampSlider.value);
+      this.ampValue.textContent = v.toFixed(1);
+      if (this.engine.config.source) {
+        this.engine.config.source.amp = v;
+        this.updateSourceUC.execute(this.engine.config.source);
+      }
+    });
+
+    this.startBtn.addEventListener('click', () => {
+      this.startUC.execute();
+      this.startBtn.disabled = true;
+      this.pauseBtn.disabled = false;
+      this.stepBtn.disabled = true;
+      this._setStatus('Simulación en ejecución…', 'ok');
+    });
+
+    this.pauseBtn.addEventListener('click', () => {
+      this.startUC.pause();
+      this.startBtn.disabled = false;
+      this.pauseBtn.disabled = true;
+      this.stepBtn.disabled = false;
+      this._setStatus('Pausada', 'partial');
+    });
+
+    this.stepBtn.addEventListener('click', () => this.stepUC.execute());
+
+    this.resetBtn.addEventListener('click', () => {
+      this.startUC.stop();
+      this.resetUC.execute();
+      this.startBtn.disabled = false;
+      this.pauseBtn.disabled = true;
+      this.stepBtn.disabled = false;
+      this._setStatus('Reiniciada', 'ok');
+    });
+
+    this.listenBtn.addEventListener('click', async () => {
+      this.startUC.stop();
+      this.startBtn.disabled = false;
+      this.pauseBtn.disabled = true;
+      this.stepBtn.disabled = false;
+      this._setStatus('Generando sonido…', 'partial');
+      try {
+        await this.sonifyUC.execute({ duration: 0.25 });
+      } catch (e) {
+        this._setStatus('Error: ' + e.message, 'rejected');
+        console.error(e);
+      }
+    });
+
+    this.bus.on('fieldUpdated', ({ data, nx, nz, config, traces, receivers }) => {
+      this.visualizer.drawField(data, nx, nz, config);
+      this.traceRenderer.draw(traces, receivers);
+      this.timeDisplay.textContent = config.time.toFixed(4);
+      this.stepDisplay.textContent = config.stepCount;
+    });
+
+    this.bus.on('sonificationFinished', ({ samples, sampleRate, cutoff }) => {
+      this._setStatus(
+        `Traza: ${samples} muestras @ ${sampleRate.toFixed(0)} Hz · cutoff ${cutoff.toFixed(0)} Hz`,
+        'ok'
+      );
+    });
+  }
+
+  _refreshMediumInfo(m) {
+    this.mediumInfo.innerHTML = `
+      <div><b>${m.name}</b></div>
+      <div>P = ${m.pressure} atm · T = ${m.temperature} K</div>
+      <div>M = ${m.molarMass} kg/mol · γ = ${m.gamma}</div>
+      <div>c = ${m.soundSpeed.toFixed(1)} m/s</div>
+      <div>ρ = ${m.density.toFixed(4)} kg/m³</div>
+      <div>Z = ${m.impedance.toFixed(2)} rayls</div>
+    `;
+  }
+
+  _setStatus(text, type) {
+    this.statusMsg.textContent = text;
+    this.statusMsg.className = 'status ' + (type || 'ok');
+  }
+}
+
+// ============================================================
+// 7. TESTS — física, solver, absorción, estabilidad, repositorio
+// ============================================================
+//
+// Se ejecutan al arrancar. Loguean a consola.
+// No tocan el DOM ni Web Audio.
+
+function runTests() {
+  const results = [];
+  const test = (name, fn) => {
+    try { fn(); results.push({ name, ok: true }); }
+    catch (e) { results.push({ name, ok: false, error: e.message }); }
+  };
+  const approx = (a, b, tol, msg) => {
+    if (Math.abs(a - b) > tol) {
+      throw new Error(`${msg || ''} expected ${b} ± ${tol}, got ${a}`);
+    }
+  };
+
+  // ---------- Física del medio ----------
+
+  test('Tierra: c ≈ 343 m/s', () => {
+    const m = new AcousticMedium({
+      name: 'Tierra', pressure: 1, temperature: 293,
+      molarMass: 0.029, gamma: 1.4,
+    });
+    approx(m.soundSpeed, 343, 5, 'c Tierra');
+  });
+
+  test('Tierra: ρ ≈ 1.20 kg/m³', () => {
+    const m = new AcousticMedium({
+      name: 'Tierra', pressure: 1, temperature: 293,
+      molarMass: 0.029, gamma: 1.4,
+    });
+    approx(m.density, 1.20, 0.05, 'ρ Tierra');
+  });
+
+  test('Marte: c ≈ 240 m/s', () => {
+    const m = new AcousticMedium({
+      name: 'Marte', pressure: 0.006, temperature: 210,
+      molarMass: 0.044, gamma: 1.3,
+    });
+    approx(m.soundSpeed, 240, 15, 'c Marte');
+  });
+
+  test('Venus: ρ > 50 kg/m³ (muy denso)', () => {
+    const m = new AcousticMedium({
+      name: 'Venus', pressure: 92, temperature: 737,
+      molarMass: 0.044, gamma: 1.3,
+    });
+    if (m.density < 50) throw new Error(`Venus ρ = ${m.density}`);
+  });
+
+  test('Titán: c ≈ 190 m/s', () => {
+    const m = new AcousticMedium({
+      name: 'Titán', pressure: 1.45, temperature: 94,
+      molarMass: 0.028, gamma: 1.4,
+    });
+    approx(m.soundSpeed, 190, 20, 'c Titán');
+  });
+
+  // ---------- CFL ----------
+
+  test('CFL: dt cumple la condición en 2D', () => {
+    const cfg = new SimulationConfig();
+    cfg.medium = new AcousticMedium({
+      name: 'Tierra', pressure: 1, temperature: 293,
+      molarMass: 0.029, gamma: 1.4,
+    });
+    cfg.updateDt();
+    const S = cfg.medium.soundSpeed * cfg.dt / Math.min(cfg.dx, cfg.dz);
+    if (S >= 1 / Math.SQRT2) {
+      throw new Error(`CFL violado: S = ${S}, debe ser < ${1 / Math.SQRT2}`);
+    }
+  });
+
+  test('Sample rate en rango soportable por Web Audio', () => {
+    const cfg = new SimulationConfig();
+    cfg.medium = new AcousticMedium({
+      name: 'Tierra', pressure: 1, temperature: 293,
+      molarMass: 0.029, gamma: 1.4,
+    });
+    cfg.updateDt();
+    const fs = cfg.sampleRate;
+    if (fs < 3000 || fs > 768000) {
+      throw new Error(`Sample rate fuera de rango: ${fs} Hz`);
+    }
+  });
+
+  // ---------- Solver: propagación ----------
+
+  test('Solver: el pico llega al receptor a t ≈ d/c', () => {
+    const cfg = new SimulationConfig();
+    cfg.nx = 150; cfg.nz = 60;
+    cfg.dx = cfg.dz = 0.02;
+    cfg.boundaryMode = 'open';
+    cfg.spongeWidth = 20;
+    cfg.medium = new AcousticMedium({
+      name: 'Tierra', pressure: 1, temperature: 293,
+      molarMass: 0.029, gamma: 1.4,
+    });
+    cfg.updateDt();
+
+    cfg.source = new Source({
+      x: 0.5, z: cfg.physicalHeight / 2,
+      freq: 1500, amp: 1, type: 'ricker',
+    });
+    cfg.receivers = [ new Receiver({
+      x: 1.5, z: cfg.physicalHeight / 2,
+    }) ];
+
+    const engine = new AcousticEngine();
+    engine.init(cfg);
+
+    const dist = 1.0;
+    const c = cfg.medium.soundSpeed;
+    const tExpected = dist / c + 1 / cfg.source.freq;
+    const steps = Math.floor(tExpected / cfg.dt) + 300;
+    for (let i = 0; i < steps; i++) engine.step();
+
+    const trace = cfg.receivers[0].trace;
+    if (trace.length < 100) throw new Error('Traza demasiado corta');
+
+    let maxIdx = 0, maxVal = 0;
+    for (let i = 0; i < trace.length; i++) {
+      const a = Math.abs(trace[i]);
+      if (a > maxVal) { maxVal = a; maxIdx = i; }
+    }
+    const tPeak = maxIdx * cfg.dt;
+    const tol = tExpected * 0.35;
+    if (Math.abs(tPeak - tExpected) > tol) {
+      throw new Error(
+        `Pico t=${tPeak.toFixed(5)}, esperado ~${tExpected.toFixed(5)} (±${tol.toFixed(5)})`
+      );
+    }
+  });
+
+  test('Solver: en modo abierto el campo se absorbe', () => {
+    const cfg = new SimulationConfig();
+    cfg.nx = 100; cfg.nz = 80;
+    cfg.dx = cfg.dz = 0.02;
+    cfg.boundaryMode = 'open';
+    cfg.spongeWidth = 20;
+    cfg.medium = new AcousticMedium({
+      name: 'Tierra', pressure: 1, temperature: 293,
+      molarMass: 0.029, gamma: 1.4,
+    });
+    cfg.updateDt();
+    cfg.source = new Source({ x: 0.6, z: 0.8, freq: 1500, amp: 1 });
+    cfg.receivers = [ new Receiver({ x: 1.2, z: 0.8 }) ];
+
+    const engine = new AcousticEngine();
+    engine.init(cfg);
+
+    const steps = Math.floor(0.05 / cfg.dt);
+    for (let i = 0; i < steps; i++) engine.step();
+
+    let maxField = 0;
+    for (let i = 0; i < engine.p.length; i++) {
+      const a = Math.abs(engine.p[i]);
+      if (a > maxField) maxField = a;
+    }
+    if (maxField > 0.05) {
+      throw new Error(`Campo residual ${maxField} — la esponja no absorbe`);
+    }
+  });
+
+  test('Solver: en modo cámara las paredes reflejan', () => {
+    const cfg = new SimulationConfig();
+    cfg.nx = 80; cfg.nz = 80;
+    cfg.dx = cfg.dz = 0.02;
+    cfg.boundaryMode = 'chamber';
+    cfg.medium = new AcousticMedium({
+      name: 'Tierra', pressure: 1, temperature: 293,
+      molarMass: 0.029, gamma: 1.4,
+    });
+    cfg.updateDt();
+    cfg.source = new Source({ x: 0.8, z: 0.8, freq: 1500, amp: 1 });
+    cfg.receivers = [ new Receiver({ x: 0.4, z: 0.8 }) ];
+
+    const engine = new AcousticEngine();
+    engine.init(cfg);
+
+    // Avanzamos tiempo suficiente para que la onda llegue, rebote
+    // en las paredes y vuelva al receptor.
+    const steps = Math.floor(0.03 / cfg.dt);
+    for (let i = 0; i < steps; i++) engine.step();
+
+    // En modo cámara sin pérdidas la energía no desaparece:
+    // el campo debe seguir siendo apreciable.
+    let maxField = 0;
+    for (let i = 0; i < engine.p.length; i++) {
+      const a = Math.abs(engine.p[i]);
+      if (a > maxField) maxField = a;
+    }
+    if (maxField < 1e-4) {
+      throw new Error(`Cámara perdió energía: maxField=${maxField}`);
+    }
+  });
+
+  test('Solver: estabilidad — sin NaN tras 2000 pasos', () => {
+    const cfg = new SimulationConfig();
+    cfg.nx = 80; cfg.nz = 80;
+    cfg.boundaryMode = 'chamber';
+    cfg.medium = new AcousticMedium({
+      name: 'Tierra', pressure: 1, temperature: 293,
+      molarMass: 0.029, gamma: 1.4,
+    });
+    cfg.updateDt();
+    cfg.source = new Source({ x: 1.0, z: 1.0, freq: 800, amp: 1 });
+    cfg.receivers = [ new Receiver({ x: 0.5, z: 0.5 }) ];
+
+    const engine = new AcousticEngine();
+    engine.init(cfg);
+
+    for (let i = 0; i < 2000; i++) engine.step();
+
+    for (let i = 0; i < engine.p.length; i++) {
+      if (!isFinite(engine.p[i])) {
+        throw new Error(`Valor no finito en p[${i}] = ${engine.p[i]}`);
+      }
+    }
+  });
+
+  test('Solver: la fuente inyecta energía', () => {
+    const cfg = new SimulationConfig();
+    cfg.nx = 60; cfg.nz = 60;
+    cfg.boundaryMode = 'open';
+    cfg.medium = new AcousticMedium({
+      name: 'Tierra', pressure: 1, temperature: 293,
+      molarMass: 0.029, gamma: 1.4,
+    });
+    cfg.updateDt();
+    cfg.source = new Source({ x: 0.6, z: 0.6, freq: 1500, amp: 1 });
+    cfg.receivers = [ new Receiver({ x: 0.6, z: 0.6 }) ];
+
+    const engine = new AcousticEngine();
+    engine.init(cfg);
+
+    let sumBefore = 0;
+    for (let i = 0; i < engine.p.length; i++) sumBefore += Math.abs(engine.p[i]);
+
+    for (let i = 0; i < 40; i++) engine.step();
+
+    let sumAfter = 0;
+    for (let i = 0; i < engine.p.length; i++) sumAfter += Math.abs(engine.p[i]);
+
+    if (sumAfter <= sumBefore) throw new Error('La fuente no inyectó energía');
+  });
+
+  // ---------- Repositorio ----------
+
+  test('Repositorio: los 4 planetas están registrados', () => {
+    const repo = new PlanetRepository();
+    repo.initDefaults();
+    for (const id of ['tierra', 'marte', 'venus', 'titan']) {
+      if (!repo.get(id)) throw new Error(`Falta ${id}`);
+    }
+  });
+
+  test('Repositorio: Venus más denso que Tierra', () => {
+    const repo = new PlanetRepository();
+    repo.initDefaults();
+    if (repo.get('venus').density <= repo.get('tierra').density) {
+      throw new Error('Venus debería ser más denso que Tierra');
+    }
+  });
+
+  test('Repositorio: Marte más lento que Tierra', () => {
+    const repo = new PlanetRepository();
+    repo.initDefaults();
+    if (repo.get('marte').soundSpeed >= repo.get('tierra').soundSpeed) {
+      throw new Error('Marte debería tener c menor que Tierra');
+    }
+  });
+
+  // ---------- Resultados ----------
+
+  const okCount = results.filter(r => r.ok).length;
+  const failCount = results.length - okCount;
+  console.log(`\n=== TESTS: ${okCount}/${results.length} OK ===`);
+  results.forEach(r => {
+    if (r.ok) console.log(`✅ ${r.name}`);
+    else console.error(`❌ ${r.name}: ${r.error}`);
+  });
+  console.log('=== Fin de tests ===\n');
+
+  return { ok: okCount, fail: failCount, results };
+}
+
+// ============================================================
+// 8. COMPOSICIÓN — punto de entrada
+// ============================================================
+
+window.addEventListener('load', () => {
+  // 0. Tests
+  runTests();
+
+  // 1. Infraestructura
+  const bus = new EventBus();
+  const engine = new AcousticEngine();
+  const sonifier = new Sonifier();
+
+  const waveCanvas = document.getElementById('wavefieldCanvas');
+  waveCanvas.width = 600; waveCanvas.height = 450;
+  const traceCanvas = document.getElementById('traceCanvas');
+  traceCanvas.width = 600; traceCanvas.height = 100;
+
+  const visualizer = new FieldVisualizer(waveCanvas);
+  const traceRenderer = new TraceRenderer(traceCanvas);
+
+  // 2. Repositorio
+  const repo = new PlanetRepository();
+  repo.initDefaults();
+
+  // 3. Caso de uso de sonificación
+  const sonifyUC = new SonifyMediumUseCase(engine, sonifier, bus);
+
+  // 4. UI (recibe el sonifyUC para poder usarlo)
+  // eslint-disable-next-line no-unused-vars
+  const ui = new AcousticUI(bus, engine, visualizer, traceRenderer, repo, sonifyUC);
+});
+})();
+</script>
+</body>
+</html>
