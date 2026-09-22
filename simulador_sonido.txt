@@ -1,0 +1,387 @@
+================================================================================
+SIMULADOR ACÚSTICO 2D — ONDAS DE PRESIÓN EN MEDIOS PLANETARIOS
+================================================================================
+Versión: 1.0
+Tipo: Simulador físico interactivo con sonificación en tiempo real
+Stack: HTML + CSS + JavaScript puro (Web Audio API)
+Autor: (tú)
+Fecha: (cuando lo termines)
+================================================================================
+
+
+1. QUÉ ES
+--------------------------------------------------------------------------------
+
+Un simulador numérico 2D que resuelve las ecuaciones de la acústica lineal en
+un medio gaseoso y convierte el resultado en sonido audible. El medio puede
+ser la atmósfera de la Tierra, Marte, Venus o Titán.
+
+No es un procesador de audio. No carga muestras. No aplica efectos.
+Es un solver de ecuaciones diferenciales en derivadas parciales cuyo
+resultado final se oye.
+
+El objetivo: que el medio sea el instrumento. Cambias de planeta y cambia
+el sonido porque cambian las propiedades físicas del gas, no porque se
+active un preset.
+
+Forma parte de una trilogía de simuladores con la misma arquitectura:
+
+  - Simulador Sísmico 2D       → ondas elásticas P y S en la corteza
+  - Simulador Electromagnético → ondas EM (Maxwell) en modo TM, FDTD
+  - Simulador Acústico 2D      → ondas de presión en gases (este)
+
+Los tres comparten patrón: dominio + puertos + infraestructura +
+casos de uso + UI + tests + composición.
+
+
+2. QUÉ HACE
+--------------------------------------------------------------------------------
+
+En pantalla:
+
+  - Muestra el campo de presión p(x, z) en un mapa de color divergente
+    (azul = depresión, negro = reposo, naranja = sobrepresión).
+  - Marca la fuente con un punto rojo y el receptor con un punto cian.
+  - Dibuja la traza temporal del receptor en un segundo canvas.
+  - Muestra el tiempo físico transcurrido y el número de paso.
+
+Interacción:
+
+  - Seleccionar planeta: Tierra, Marte, Venus, Titán.
+  - Seleccionar frontera: cámara cerrada (paredes rígidas) o abierto
+    (frontera absorbente).
+  - Ajustar frecuencia y amplitud de la fuente.
+  - Iniciar, pausar, avanzar paso a paso, reiniciar la simulación.
+  - Botón "Escuchar el medio": genera la respuesta al impulso del
+    recinto en el medio actual y la reproduce como audio.
+
+Efecto audible:
+
+  - Cada planeta produce una velocidad del sonido y una densidad distintas.
+  - Cada planeta tiene un coeficiente de absorción distinto que se traduce
+    en un filtro paso-bajo aplicado a la traza final.
+  - El tamaño físico de la cámara y la velocidad del sonido determinan las
+    frecuencias de resonancia.
+  - Resultado: cada planeta suena distinto. No por efecto añadido, sino
+    porque la física es distinta.
+
+
+3. CÓMO LO HACE — VISIÓN GENERAL
+--------------------------------------------------------------------------------
+
+Flujo de datos:
+
+  [Medio planetario]
+        │  P, T, M, γ, absorción
+        ▼
+  [Fórmulas de gas ideal]
+        │  c = √(γRT/M)   ρ = PM/(RT)   Z = ρc
+        ▼
+  [Configuración de simulación]
+        │  nx, nz, dx, dz, dt (CFL), fuente, receptores, frontera
+        ▼
+  [Motor acústico: solver de diferencias finitas]
+        │  paso a paso: v ← ∇p ; fuente ; p ← ∇·v ; frontera ; registro
+        ▼
+  [Campo de presión p(x,z)]  ──►  [Visualizador de campo]
+        │
+        ▼
+  [Traza del receptor p(t)] ──►  [Visualizador de traza]
+        │
+        ▼
+  [Sonificador: remuestreo + normalización + filtro]
+        │
+        ▼
+  [Web Audio API] ──► [Altavoces]
+
+
+4. FÍSICA
+--------------------------------------------------------------------------------
+
+4.1. Medio gaseoso (gas ideal)
+
+Cada planeta se representa con cinco números:
+
+  P   presión          (atm)
+  T   temperatura      (K)
+  M   masa molar       (kg/mol)
+  γ   índice adiabático
+  α   absorción        (0..1, empírico, sólo para sonificación)
+
+De ahí se derivan las magnitudes acústicas:
+
+  Velocidad del sonido:    c = √(γ · R · T / M)      [m/s]
+  Densidad:                ρ = P · M / (R · T)       [kg/m³]
+  Impedancia:              Z = ρ · c                 [rayls]
+
+Donde R = 8.314 J/(mol·K) es la constante de los gases.
+
+4.2. Ecuaciones de la acústica lineal
+
+En un medio homogéneo, sin pérdidas, las ecuaciones de primer orden son:
+
+  ∂vx/∂t = -(1/ρ) ∂p/∂x
+  ∂vz/∂t = -(1/ρ) ∂p/∂z
+  ∂p/∂t  = -ρ c² (∂vx/∂x + ∂vz/∂z)
+
+Son tres ecuaciones acopladas: dos para la velocidad del fluido en cada
+dirección y una para la presión.
+
+Combinándolas se obtiene la ecuación de onda clásica:
+
+  ∂²p/∂t² = c² ∇²p
+
+Pero en el solver se usan las tres de primer orden, no la de segundo,
+porque son numéricamente más estables con el esquema de leapfrog.
+
+4.3. Discretización: grid escalonado (staggered)
+
+La presión y la velocidad no viven en los mismos puntos. Es el mismo
+truco del esquema de Yee en electromagnetismo y del esquema de Virieux
+en sísmica:
+
+  p[i,j]   en (i·dx,     j·dz)
+  vx[i,j]  en ((i+½)·dx, j·dz)
+  vz[i,j]  en (i·dx,    (j+½)·dz)
+
+Ventaja: las derivadas espaciales se calculan con diferencias centradas
+de segundo orden sin promediar. Precisión y estabilidad.
+
+4.4. Avance temporal: leapfrog
+
+En cada paso:
+
+  1. Se actualizan las velocidades usando la presión actual.
+  2. Se inyecta la fuente en la presión.
+  3. Se actualiza la presión usando las velocidades recién calculadas.
+  4. Se aplican las condiciones de frontera.
+  5. Se registra el valor de presión en cada receptor.
+
+Es un esquema explícito: cada paso es una operación local sobre arrays.
+Rápido, paralelizable, sin resolver sistemas lineales.
+
+4.5. Estabilidad: condición CFL
+
+En 2D, el paso temporal debe cumplir:
+
+  dt ≤ S · min(dx, dz) / (c · √2)
+
+con S < 1. En el código S = 0.5 (Courant). Si se viola, el solver
+explota en pocos pasos (NaN por doquier).
+
+En la práctica: dt se calcula automáticamente a partir de c y del tamaño
+de celda cada vez que cambia el medio.
+
+4.6. Fronteras
+
+Dos modos:
+
+  Cámara (pared rígida):
+    Condición de Neumann: ∂p/∂n = 0.
+    Implementación: p[borde] = p[celda contigua].
+    Refleja toda la energía. Crea resonancias.
+    Es el modo "recinto cerrado": suena a sala, a tubo, a caja.
+
+  Abierto (absorbente):
+    Capa de esponja en los cuatro bordes con perfil cúbico.
+    Amortiguamiento máximo 0.1 por paso en el borde exterior,
+    decreciendo hacia el interior.
+    Absorbe la mayor parte de la energía incidente.
+    Es el modo "exterior": suena a impulso limpio, sin cola.
+
+4.7. Fuente
+
+Dos tipos de ondícula:
+
+  Ricker:   banda ancha, un pulso breve.
+            p(t) = A · (1 - 2τ²) · exp(-τ²)   con τ = π·f·(t - 1/f)
+
+  Tono:     banda estrecha, un paquete de seno con envolvente gaussiana.
+            p(t) = A · sin(2πft) · exp(-((t - t0)/τ)²)
+
+La fuente se inyecta sumando a la presión de la celda correspondiente.
+No es una fuente dura (que sobrescribiría): es una contribución.
+
+
+5. ARQUITECTURA
+--------------------------------------------------------------------------------
+
+Organización en capas, con dependencias dirigidas hacia dentro:
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  UI                                                     │
+  │  AcousticUI                                             │
+  └───────────────────────┬─────────────────────────────────┘
+                          │
+  ┌───────────────────────▼─────────────────────────────────┐
+  │  Casos de uso                                           │
+  │  InitializeSimulation · StartSimulation · StepSimulation │
+  │  ResetSimulation · UpdateMedium · UpdateSource          │
+  │  UpdateBoundary · SonifyMedium                          │
+  └───────────────────────┬─────────────────────────────────┘
+                          │
+  ┌───────────────────────▼─────────────────────────────────┐
+  │  Puertos (interfaces documentadas)                      │
+  │  WaveEnginePort · EventBusPort · RendererPort           │
+  │  SonifierPort · MediumRepositoryPort                    │
+  └───────────────────────┬─────────────────────────────────┘
+                          │
+  ┌───────────────────────▼─────────────────────────────────┐
+  │  Infraestructura                                        │
+  │  AcousticEngine · FieldVisualizer · TraceRenderer       │
+  │  Sonifier · EventBus · PlanetRepository                 │
+  └───────────────────────┬─────────────────────────────────┘
+                          │
+  ┌───────────────────────▼─────────────────────────────────┐
+  │  Dominio                                                │
+  │  AcousticMedium · Source · Receiver · SimulationConfig  │
+  └─────────────────────────────────────────────────────────┘
+
+El dominio no conoce a nadie. No importa nada. Sólo define entidades y
+deriva magnitudes físicas a partir de parámetros.
+
+La infraestructura implementa los puertos. Cambiar Web Audio por otra
+cosa, o el canvas por SVG, es sustituir un adaptador sin tocar el resto.
+
+Los casos de uso orquestan. No saben cómo funciona el motor por dentro;
+le piden "avanza un paso" o "dame el campo".
+
+La UI se suscribe al bus de eventos. No llama al motor directamente.
+Recibe actualizaciones y las pinta. Emite intenciones y los casos de
+uso las ejecutan.
+
+El bus de eventos es el mediador. Desacopla emisores y receptores.
+
+
+6. TESTS
+--------------------------------------------------------------------------------
+
+Se ejecutan al arrancar y loguean a consola. Cubren las zonas donde un
+error sería silencioso o peligroso:
+
+  Física:
+    - Tierra: c ≈ 343 m/s
+    - Tierra: ρ ≈ 1.20 kg/m³
+    - Marte: c ≈ 240 m/s
+    - Venus: ρ > 50 kg/m³
+    - Titán: c ≈ 190 m/s
+
+  Numérico:
+    - CFL: dt cumple la condición en 2D
+    - Sample rate resultante en rango soportable por Web Audio
+
+  Solver:
+    - El pico de presión llega al receptor a t ≈ d/c (propagación correcta)
+    - En modo abierto el campo se absorbe (la esponja funciona)
+    - En modo cámara las paredes reflejan (la energía se conserva)
+    - Estabilidad: sin NaN tras 2000 pasos
+    - La fuente inyecta energía (el campo crece al inicio)
+
+  Repositorio:
+    - Los cuatro planetas están registrados
+    - Venus más denso que Tierra
+    - Marte con c menor que Tierra
+
+Lo que NO está probado: el Sonifier y la UI. Requieren Web Audio real y
+DOM, y el coste de simularlos supera el beneficio para un prototipo.
+
+
+7. CÓMO USARLO
+--------------------------------------------------------------------------------
+
+1. Abrir el HTML en un navegador con Web Audio (Chrome, Firefox, Safari).
+2. Al cargar se ejecutan los tests. Mirar la consola del navegador.
+3. Elegir planeta.
+4. Elegir frontera (cámara o abierto).
+5. Ajustar frecuencia y amplitud de la fuente.
+6. Pulsar "Iniciar" y ver el campo propagarse.
+7. Pulsar "Escuchar el medio": se resetea, se simula 0.25 s, se
+   reproduce la traza del receptor.
+
+Nota: el primer clic en "Escuchar" requiere gesto de usuario para
+desbloquear el contexto de audio del navegador. Ya está cubierto porque
+el botón es un clic.
+
+
+8. QUÉ SE OYE Y POR QUÉ
+--------------------------------------------------------------------------------
+
+La diferencia entre planetas no viene de un preset. Viene de tres cosas:
+
+  1. Velocidad del sonido distinta
+     Cambia la frecuencia de las resonancias del recinto (proporcionales
+     a c/L) y el tiempo que tarda la onda en recorrer la cámara.
+
+  2. Densidad distinta
+     Cambia la impedancia. No afecta directamente al tono, pero
+     conceptualmente define "cuánta masa" hay que mover.
+
+  3. Absorción distinta
+     Se traduce en un filtro paso-bajo al sonificar. Más absorción
+     (Marte), corte más agudo. Menos absorción (Venus), más brillo.
+
+Además, la duración de la cola depende de si la frontera es cámara
+(resuena) o abierto (se apaga rápido).
+
+En resumen: el sonido no es un efecto. Es la consecuencia audible de
+resolver las ecuaciones del medio con esos parámetros.
+
+
+9. LÍMITES Y EXTENSIONES
+--------------------------------------------------------------------------------
+
+Límites actuales:
+
+  - Medio homogéneo: mismo gas en todas las celdas.
+  - Sin pérdidas dentro del solver: la absorción se aplica al sonificar,
+    no en la propagación.
+  - Fuente y receptor fijos: no arrastrables.
+  - Sólo un receptor activo para la traza mostrada.
+  - Sólo 2D: no hay propagación fuera del plano.
+
+Extensiones naturales, en orden de dificultad:
+
+  1. Fuente y receptor arrastrables en el canvas.
+     Cambia la propagación en vivo. Muy visual.
+
+  2. Medios no homogéneos: capas horizontales o inclusiones.
+     Cada celda con su (c, ρ). El solver no cambia; sólo los arrays.
+     Sonaría a interfaz, a eco, a cavidad.
+
+  3. Absorción en el solver.
+     Modelo de relajación o término de amortiguamiento en la ecuación de
+     presión. Físicamente más honesto que el filtro al sonificar.
+
+  4. Modo 1D como vista alternativa.
+     Un tubo de aire. Suena a tubo. Compara con el 2D.
+
+  5. Física más rica: humedad, composición multicomponente.
+     Cada gas con su γ y su M. Regla de mezclas.
+
+  6. Modo "recinto" arrastrable: dibujar obstáculos con el ratón.
+     Convierte el simulador en un instrumento de diseño acústico.
+
+  7. Fronteras más sofisticadas: PML en lugar de esponja.
+     Menos reflexión parásita. Como el EM.
+
+
+10. CRÉDITOS Y CONTEXTO
+--------------------------------------------------------------------------------
+
+Este simulador es el tercero de una trilogía. Los tres comparten:
+
+  - Patrón arquitectónico: dominio + puertos + infraestructura +
+    casos de uso + UI + tests + composición.
+  - Grid escalonado (Yee / Virieux / leapfrog acústico).
+  - Bus de eventos como mediador.
+  - Visualizador de campo + visualizador de trazas.
+  - Presets + parámetros ajustables.
+  - Tests que se ejecutan al arrancar.
+
+La trilogía completa permite comparar cómo se propaga una onda en tres
+medios distintos: sólido elástico, vacío electromagnético, gas acústico.
+Misma matemática, misma arquitectura, distinta física. Distinto sonido.
+
+================================================================================
+FIN DEL DOCUMENTO
+================================================================================
